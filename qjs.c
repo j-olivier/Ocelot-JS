@@ -133,8 +133,9 @@ static inline unsigned long long js_trace_malloc_ptr_offset(uint8_t *ptr,
 }
 
 /* default memory allocation functions with memory limitation */
-static size_t js_trace_malloc_usable_size(const void *ptr)
+static size_t js_trace_malloc_usable_size(JSMallocState *s, const void *ptr)
 {
+    (void)s;
 #if defined(__APPLE__)
     return malloc_size(ptr);
 #elif defined(_WIN32)
@@ -172,7 +173,7 @@ __attribute__((format(printf, 2, 3)))
                 } else {
                     printf("H%+06lld.%zd",
                            js_trace_malloc_ptr_offset(ptr, s->opaque),
-                           js_trace_malloc_usable_size(ptr));
+                           js_trace_malloc_usable_size(s, ptr));
                 }
                 fmt++;
                 continue;
@@ -207,7 +208,7 @@ static void *js_trace_malloc(JSMallocState *s, size_t size)
     js_trace_malloc_printf(s, "A %zd -> %p\n", size, ptr);
     if (ptr) {
         s->malloc_count++;
-        s->malloc_size += js_trace_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
+        s->malloc_size += js_trace_malloc_usable_size(s, ptr) + MALLOC_OVERHEAD;
     }
     return ptr;
 }
@@ -219,7 +220,7 @@ static void js_trace_free(JSMallocState *s, void *ptr)
 
     js_trace_malloc_printf(s, "F %p\n", ptr);
     s->malloc_count--;
-    s->malloc_size -= js_trace_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
+    s->malloc_size -= js_trace_malloc_usable_size(s, ptr) + MALLOC_OVERHEAD;
     free(ptr);
 }
 
@@ -232,7 +233,7 @@ static void *js_trace_realloc(JSMallocState *s, void *ptr, size_t size)
             return NULL;
         return js_trace_malloc(s, size);
     }
-    old_size = js_trace_malloc_usable_size(ptr);
+    old_size = js_trace_malloc_usable_size(s, ptr);
     if (size == 0) {
         js_trace_malloc_printf(s, "R %zd %p\n", size, ptr);
         s->malloc_count--;
@@ -248,7 +249,7 @@ static void *js_trace_realloc(JSMallocState *s, void *ptr, size_t size)
     ptr = realloc(ptr, size);
     js_trace_malloc_printf(s, " -> %p\n", ptr);
     if (ptr) {
-        s->malloc_size += js_trace_malloc_usable_size(ptr) - old_size;
+        s->malloc_size += js_trace_malloc_usable_size(s, ptr) - old_size;
     }
     return ptr;
 }

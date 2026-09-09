@@ -62,27 +62,30 @@ void js_abort(void)
     abort();
 }
 
-static void pal_abort(void) __attribute__((noreturn));
+static void pal_abort(JSPal *opaque) __attribute__((noreturn));
 
-static void pal_abort(void)
+static void pal_abort(JSPal *opaque)
 {
+    (void)opaque;
     js_abort();
 }
 
 /*----------------------------------------------------------------------*/
 /* time */
 
-static void pal_get_time(JSPalTime *t)
+static void pal_get_time(JSPal *opaque, JSPalTime *t)
 {
     struct timeval tv;
+    (void)opaque;
     gettimeofday(&tv, NULL);
     t->sec = tv.tv_sec;
     t->usec = tv.tv_usec;
 }
 
-static void pal_get_time_monotonic(JSPalTime *t)
+static void pal_get_time_monotonic(JSPal *opaque, JSPalTime *t)
 {
     struct timespec ts;
+    (void)opaque;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     t->sec = ts.tv_sec;
     t->usec = ts.tv_nsec / 1000;
@@ -92,8 +95,9 @@ static void pal_get_time_monotonic(JSPalTime *t)
    time (ms since epoch), matching JS Date.prototype.getTimezoneOffset()
    sign conventions. This is a verbatim relocation of the pre-PAL
    getTimezoneOffset() that used to live in quickjs.c. */
-static int pal_get_timezone_offset(int64_t time)
+static int pal_get_timezone_offset(JSPal *opaque, int64_t time)
 {
+    (void)opaque;
     time_t ti;
     int res;
 
@@ -147,26 +151,30 @@ static int pal_get_timezone_offset(int64_t time)
 }
 
 /*----------------------------------------------------------------------*/
-/* raw allocator, backing the default JSMallocFunctions impl only (see
+/* memory allocator, backing the default JSMallocFunctions impl only (see
    the comment above JSPalTime in quickjs.h) */
 
-static void *pal_raw_malloc(size_t size)
+static void *pal_memory_malloc(JSPal *opaque, size_t size)
 {
+    (void)opaque;
     return malloc(size);
 }
 
-static void pal_raw_free(void *ptr)
+static void pal_memory_free(JSPal *opaque, void *ptr)
 {
+    (void)opaque;
     free(ptr);
 }
 
-static void *pal_raw_realloc(void *ptr, size_t size)
+static void *pal_memory_realloc(JSPal *opaque, void *ptr, size_t size)
 {
+    (void)opaque;
     return realloc(ptr, size);
 }
 
-static size_t pal_raw_malloc_usable_size(const void *ptr)
+static size_t pal_memory_malloc_usable_size(JSPal *opaque, const void *ptr)
 {
+    (void)opaque;
 #if defined(__APPLE__)
     return malloc_size(ptr);
 #elif defined(_WIN32)
@@ -191,68 +199,79 @@ static_assert(sizeof(pthread_cond_t) <= sizeof(JSPalCond),
 static_assert(sizeof(pthread_t) <= sizeof(JSPalThread),
               "pthread_t too big for JSPalThread");
 
-static void pal_mutex_init(JSPalMutex *mutex)
+static void pal_mutex_init(JSPal *opaque, JSPalMutex *mutex)
 {
+    (void)opaque;
     pthread_mutex_init((pthread_mutex_t *)mutex, NULL);
 }
 
-static void pal_mutex_destroy(JSPalMutex *mutex)
+static void pal_mutex_destroy(JSPal *opaque, JSPalMutex *mutex)
 {
+    (void)opaque;
     pthread_mutex_destroy((pthread_mutex_t *)mutex);
 }
 
-static void pal_mutex_lock(JSPalMutex *mutex)
+static void pal_mutex_lock(JSPal *opaque, JSPalMutex *mutex)
 {
+    (void)opaque;
     pthread_mutex_lock((pthread_mutex_t *)mutex);
 }
 
-static void pal_mutex_unlock(JSPalMutex *mutex)
+static void pal_mutex_unlock(JSPal *opaque, JSPalMutex *mutex)
 {
+    (void)opaque;
     pthread_mutex_unlock((pthread_mutex_t *)mutex);
 }
 
-static void pal_cond_init(JSPalCond *cond)
+static void pal_cond_init(JSPal *opaque, JSPalCond *cond)
 {
+    (void)opaque;
     pthread_cond_init((pthread_cond_t *)cond, NULL);
 }
 
-static void pal_cond_destroy(JSPalCond *cond)
+static void pal_cond_destroy(JSPal *opaque, JSPalCond *cond)
 {
+    (void)opaque;
     pthread_cond_destroy((pthread_cond_t *)cond);
 }
 
-static void pal_cond_wait(JSPalCond *cond, JSPalMutex *mutex)
+static void pal_cond_wait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex)
 {
+    (void)opaque;
     pthread_cond_wait((pthread_cond_t *)cond, (pthread_mutex_t *)mutex);
 }
 
-static int pal_cond_timedwait(JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime)
+static int pal_cond_timedwait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime)
 {
     struct timespec ts;
+    (void)opaque;
     ts.tv_sec = abstime->sec;
     ts.tv_nsec = abstime->usec * 1000;
     return pthread_cond_timedwait((pthread_cond_t *)cond, (pthread_mutex_t *)mutex, &ts);
 }
 
-static void pal_cond_signal(JSPalCond *cond)
+static void pal_cond_signal(JSPal *opaque, JSPalCond *cond)
 {
+    (void)opaque;
     pthread_cond_signal((pthread_cond_t *)cond);
 }
 
-static void pal_cond_broadcast(JSPalCond *cond)
+static void pal_cond_broadcast(JSPal *opaque, JSPalCond *cond)
 {
+    (void)opaque;
     pthread_cond_broadcast((pthread_cond_t *)cond);
 }
 
 /*----------------------------------------------------------------------*/
 /* threads */
 
-static int pal_thread_create(JSPalThread *thread, void *(*start)(void *arg), void *arg,
+static int pal_thread_create(JSPal *opaque, JSPalThread *thread, void *(*start)(void *arg), void *arg,
                               size_t stack_size)
 {
     pthread_attr_t attr;
     int ret;
 
+    (void)opaque;
     pthread_attr_init(&attr);
     if (stack_size != 0)
         pthread_attr_setstacksize(&attr, stack_size);
@@ -261,22 +280,23 @@ static int pal_thread_create(JSPalThread *thread, void *(*start)(void *arg), voi
     return ret;
 }
 
-static int pal_thread_join(JSPalThread *thread)
+static int pal_thread_join(JSPal *opaque, JSPalThread *thread)
 {
+    (void)opaque;
     return pthread_join(*(pthread_t *)thread, NULL);
 }
 
 /*----------------------------------------------------------------------*/
 
-const JSPal js_pal = {
+const JSPalFunctions js_pal = {
     .abort = pal_abort,
     .get_time = pal_get_time,
     .get_time_monotonic = pal_get_time_monotonic,
     .get_timezone_offset = pal_get_timezone_offset,
-    .raw_malloc = pal_raw_malloc,
-    .raw_free = pal_raw_free,
-    .raw_realloc = pal_raw_realloc,
-    .raw_malloc_usable_size = pal_raw_malloc_usable_size,
+    .memory_malloc = pal_memory_malloc,
+    .memory_free = pal_memory_free,
+    .memory_realloc = pal_memory_realloc,
+    .memory_malloc_usable_size = pal_memory_malloc_usable_size,
     .mutex_init = pal_mutex_init,
     .mutex_destroy = pal_mutex_destroy,
     .mutex_lock = pal_mutex_lock,

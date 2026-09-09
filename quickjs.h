@@ -350,30 +350,54 @@ typedef JSValue JSCFunction(JSContext *ctx, JSValueConst this_val, int argc, JSV
 typedef JSValue JSCFunctionMagic(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic);
 typedef JSValue JSCFunctionData(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data);
 
+/* JSPal: opaque per-JSPalFunctions instance handle. Never defined -- a
+   custom JSPalFunctions implementation defines its own concrete struct
+   holding whatever per-JSRuntime state it needs and casts pointers to it
+   to/from JSPal *; the engine only ever stores and forwards the pointer.
+   The default implementation (js_pal in quickjs-pal.c) is stateless and
+   never dereferences it.
+
+   forward declaration: JSMallocState below only needs a pointer to
+   JSPalFunctions, whose full definition comes later in this file */
+typedef struct JSPal JSPal;
+typedef struct JSPalFunctions JSPalFunctions;
+
 typedef struct JSMallocState {
     size_t malloc_count;
     size_t malloc_size;
     size_t malloc_limit;
     void *opaque; /* user opaque */
+    /* PAL backing this allocator (see JSPalFunctions below). Always set
+       (defaults to the resolved runtime PAL, custom or not) so a
+       JSMallocFunctions implementation can defer to pal->memory_malloc &
+       co if it wants to; the built-in default implementation
+       (js_def_malloc & co in quickjs.c) always does. */
+    const JSPalFunctions *pal;
 } JSMallocState;
 
 typedef struct JSMallocFunctions {
     void *(*js_malloc)(JSMallocState *s, size_t size);
     void (*js_free)(JSMallocState *s, void *ptr);
     void *(*js_realloc)(JSMallocState *s, void *ptr, size_t size);
-    size_t (*js_malloc_usable_size)(const void *ptr);
+    size_t (*js_malloc_usable_size)(JSMallocState *s, const void *ptr);
 } JSMallocFunctions;
 
 typedef struct JSGCObjectHeader JSGCObjectHeader;
 
 /* PAL (Platform Abstraction Layer): host OS primitives. JSMallocFunctions
-   above remains the pluggable, usage-tracked allocation API; JSPal's
-   raw_malloc/raw_free/raw_realloc/raw_malloc_usable_size exist only so
-   *that* API's default implementation (js_def_malloc & co in quickjs.c)
-   doesn't call the OS allocator directly -- same reasoning as every other
-   JSPal member. Opaque handle types are fixed-size blobs sized to hold a
-   native primitive (e.g. pthread_mutex_t or a Win32 CRITICAL_SECTION)
-   without heap allocation. */
+   above remains the pluggable, usage-tracked allocation API; JSPalFunctions'
+   memory_malloc/memory_free/memory_realloc/memory_malloc_usable_size
+   exist only so *that* API's default implementation (js_def_malloc & co
+   in quickjs.c) doesn't call the OS allocator directly -- same reasoning
+   as every other JSPalFunctions member. Opaque handle types are fixed-size
+   blobs sized to hold a native primitive (e.g. pthread_mutex_t or a Win32
+   CRITICAL_SECTION) without heap allocation.
+
+   Every JSPalFunctions function takes a JSPal * as its first argument
+   (JS_NewRuntimePal() stores the JSPalFunctions by value in JSRuntime, so
+   this is always rt->pal.opaque in practice) -- this is what lets a
+   custom JSPalFunctions implementation keep per-JSRuntime state instead of
+   relying on process-global variables. */
 typedef struct JSPalTime {
     int64_t sec;
     int64_t usec;
@@ -383,40 +407,42 @@ typedef struct JSPalMutex  { union { void *_align; unsigned char opaque[64]; }; 
 typedef struct JSPalCond   { union { void *_align; unsigned char opaque[64]; }; } JSPalCond;
 typedef struct JSPalThread { union { void *_align; unsigned char opaque[64]; }; } JSPalThread;
 
-typedef struct JSPal {
-    void (*abort)(void);
+struct JSPalFunctions {
+    JSPal *opaque;
+
+    void (*abort)(JSPal *opaque);
     /* wall clock time (gettimeofday-equivalent) */
-    void (*get_time)(JSPalTime *t);
+    void (*get_time)(JSPal *opaque, JSPalTime *t);
     /* monotonic clock, unaffected by wall-clock adjustments */
-    void (*get_time_monotonic)(JSPalTime *t);
+    void (*get_time_monotonic)(JSPal *opaque, JSPalTime *t);
     /* timezone offset in minutes for the given time (ms since epoch) */
-    int (*get_timezone_offset)(int64_t time_ms);
+    int (*get_timezone_offset)(JSPal *opaque, int64_t time_ms);
 
-    /* raw OS allocator, backing the default JSMallocFunctions impl only --
+    /* OS allocator, backing the default JSMallocFunctions impl only --
        see the comment above JSPalTime. */
-    void  *(*raw_malloc)(size_t size);
-    void   (*raw_free)(void *ptr);
-    void  *(*raw_realloc)(void *ptr, size_t size);
-    size_t (*raw_malloc_usable_size)(const void *ptr);
+    void  *(*memory_malloc)(JSPal *opaque, size_t size);
+    void   (*memory_free)(JSPal *opaque, void *ptr);
+    void  *(*memory_realloc)(JSPal *opaque, void *ptr, size_t size);
+    size_t (*memory_malloc_usable_size)(JSPal *opaque, const void *ptr);
 
-    void (*mutex_init)(JSPalMutex *mutex);
-    void (*mutex_destroy)(JSPalMutex *mutex);
-    void (*mutex_lock)(JSPalMutex *mutex);
-    void (*mutex_unlock)(JSPalMutex *mutex);
+    void (*mutex_init)(JSPal *opaque, JSPalMutex *mutex);
+    void (*mutex_destroy)(JSPal *opaque, JSPalMutex *mutex);
+    void (*mutex_lock)(JSPal *opaque, JSPalMutex *mutex);
+    void (*mutex_unlock)(JSPal *opaque, JSPalMutex *mutex);
 
-    void (*cond_init)(JSPalCond *cond);
-    void (*cond_destroy)(JSPalCond *cond);
-    void (*cond_wait)(JSPalCond *cond, JSPalMutex *mutex);
+    void (*cond_init)(JSPal *opaque, JSPalCond *cond);
+    void (*cond_destroy)(JSPal *opaque, JSPalCond *cond);
+    void (*cond_wait)(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex);
     /* returns 0 on success, nonzero on timeout */
-    int (*cond_timedwait)(JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime);
-    void (*cond_signal)(JSPalCond *cond);
-    void (*cond_broadcast)(JSPalCond *cond);
+    int (*cond_timedwait)(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime);
+    void (*cond_signal)(JSPal *opaque, JSPalCond *cond);
+    void (*cond_broadcast)(JSPal *opaque, JSPalCond *cond);
 
     /* stack_size == 0 means "use the platform default" */
-    int (*thread_create)(JSPalThread *thread, void *(*start)(void *arg), void *arg,
+    int (*thread_create)(JSPal *opaque, JSPalThread *thread, void *(*start)(void *arg), void *arg,
                           size_t stack_size);
-    int (*thread_join)(JSPalThread *thread);
-} JSPal;
+    int (*thread_join)(JSPal *opaque, JSPalThread *thread);
+};
 
 JSRuntime *JS_NewRuntime(void);
 /* info lifetime must exceed that of rt */
@@ -432,7 +458,7 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque);
 /* like JS_NewRuntime2() but also overrides the host OS primitives (time,
    thread synchronization, panic). Passing pal == NULL uses the default
    PAL (js_pal, see quickjs-pal.h), same as JS_NewRuntime2(). */
-JSRuntime *JS_NewRuntimePal(const JSMallocFunctions *mf, const JSPal *pal, void *opaque);
+JSRuntime *JS_NewRuntimePal(const JSMallocFunctions *mf, const JSPalFunctions *pal, void *opaque);
 void JS_FreeRuntime(JSRuntime *rt);
 void *JS_GetRuntimeOpaque(JSRuntime *rt);
 void JS_SetRuntimeOpaque(JSRuntime *rt, void *opaque);
