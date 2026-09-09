@@ -366,10 +366,14 @@ typedef struct JSMallocFunctions {
 
 typedef struct JSGCObjectHeader JSGCObjectHeader;
 
-/* PAL (Platform Abstraction Layer): host OS primitives other than memory
-   allocation (which stays under JSMallocFunctions above). Opaque handle
-   types are fixed-size blobs sized to hold a native primitive (e.g.
-   pthread_mutex_t or a Win32 CRITICAL_SECTION) without heap allocation. */
+/* PAL (Platform Abstraction Layer): host OS primitives. JSMallocFunctions
+   above remains the pluggable, usage-tracked allocation API; JSPal's
+   raw_malloc/raw_free/raw_realloc/raw_malloc_usable_size exist only so
+   *that* API's default implementation (js_def_malloc & co in quickjs.c)
+   doesn't call the OS allocator directly -- same reasoning as every other
+   JSPal member. Opaque handle types are fixed-size blobs sized to hold a
+   native primitive (e.g. pthread_mutex_t or a Win32 CRITICAL_SECTION)
+   without heap allocation. */
 typedef struct JSPalTime {
     int64_t sec;
     int64_t usec;
@@ -387,6 +391,13 @@ typedef struct JSPal {
     void (*get_time_monotonic)(JSPalTime *t);
     /* timezone offset in minutes for the given time (ms since epoch) */
     int (*get_timezone_offset)(int64_t time_ms);
+
+    /* raw OS allocator, backing the default JSMallocFunctions impl only --
+       see the comment above JSPalTime. */
+    void  *(*raw_malloc)(size_t size);
+    void   (*raw_free)(void *ptr);
+    void  *(*raw_realloc)(void *ptr, size_t size);
+    size_t (*raw_malloc_usable_size)(const void *ptr);
 
     void (*mutex_init)(JSPalMutex *mutex);
     void (*mutex_destroy)(JSPalMutex *mutex);

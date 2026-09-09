@@ -44,6 +44,13 @@
 #if defined(_WIN32)
 #include <windows.h>
 #endif
+#if defined(__APPLE__)
+#include <malloc/malloc.h>
+#elif defined(__linux__) || defined(__GLIBC__)
+#include <malloc.h>
+#elif defined(__FreeBSD__)
+#include <malloc_np.h>
+#endif
 
 #include "quickjs-pal.h"
 
@@ -140,6 +147,41 @@ static int pal_get_timezone_offset(int64_t time)
 }
 
 /*----------------------------------------------------------------------*/
+/* raw allocator, backing the default JSMallocFunctions impl only (see
+   the comment above JSPalTime in quickjs.h) */
+
+static void *pal_raw_malloc(size_t size)
+{
+    return malloc(size);
+}
+
+static void pal_raw_free(void *ptr)
+{
+    free(ptr);
+}
+
+static void *pal_raw_realloc(void *ptr, size_t size)
+{
+    return realloc(ptr, size);
+}
+
+static size_t pal_raw_malloc_usable_size(const void *ptr)
+{
+#if defined(__APPLE__)
+    return malloc_size(ptr);
+#elif defined(_WIN32)
+    return _msize((void *)ptr);
+#elif defined(__EMSCRIPTEN__)
+    return 0;
+#elif defined(__linux__) || defined(__GLIBC__)
+    return malloc_usable_size((void *)ptr);
+#else
+    /* change this to `return 0;` if compilation fails */
+    return malloc_usable_size((void *)ptr);
+#endif
+}
+
+/*----------------------------------------------------------------------*/
 /* mutex / condition variables */
 
 static_assert(sizeof(pthread_mutex_t) <= sizeof(JSPalMutex),
@@ -231,6 +273,10 @@ const JSPal js_pal = {
     .get_time = pal_get_time,
     .get_time_monotonic = pal_get_time_monotonic,
     .get_timezone_offset = pal_get_timezone_offset,
+    .raw_malloc = pal_raw_malloc,
+    .raw_free = pal_raw_free,
+    .raw_realloc = pal_raw_realloc,
+    .raw_malloc_usable_size = pal_raw_malloc_usable_size,
     .mutex_init = pal_mutex_init,
     .mutex_destroy = pal_mutex_destroy,
     .mutex_lock = pal_mutex_lock,
