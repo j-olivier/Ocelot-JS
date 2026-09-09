@@ -46,6 +46,7 @@
 #include "libregexp.h"
 #include "libunicode.h"
 #include "dtoa.h"
+#include "quickjs-pal.h"
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
@@ -112,12 +113,6 @@
 
 /* test the GC by forcing it before each object allocation */
 //#define FORCE_GC_AT_MALLOC
-
-#ifdef CONFIG_ATOMICS
-#include <pthread.h>
-#include <stdatomic.h>
-#include <errno.h>
-#endif
 
 enum {
     /* classid tag        */    /* union usage   | properties */
@@ -318,6 +313,7 @@ typedef struct {
 
 struct JSRuntime {
     JSMallocContext malloc_ctx;
+    JSPal pal; /* host OS primitives (see quickjs-pal.h for the default) */
     const char *rt_info;
 
     int atom_hash_size; /* power of two */
@@ -2064,7 +2060,7 @@ static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 }
 #endif
 
-JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
+JSRuntime *JS_NewRuntimePal(const JSMallocFunctions *mf, const JSPal *pal, void *opaque)
 {
     JSRuntime *rt;
     JSMallocState ms;
@@ -2080,6 +2076,7 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
     js_malloc_init(&rt->malloc_ctx);
     rt->malloc_ctx.mf = *mf;
     rt->malloc_ctx.malloc_state = ms;
+    rt->pal = pal ? *pal : js_pal;
     rt->malloc_gc_threshold = 256 * 1024;
 
     init_list_head(&rt->context_list);
@@ -2213,9 +2210,14 @@ static const JSMallocFunctions def_malloc_funcs = {
     js_def_malloc_usable_size,
 };
 
+JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
+{
+    return JS_NewRuntimePal(mf, NULL, opaque);
+}
+
 JSRuntime *JS_NewRuntime(void)
 {
-    return JS_NewRuntime2(&def_malloc_funcs, NULL);
+    return JS_NewRuntimePal(&def_malloc_funcs, NULL, NULL);
 }
 
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
@@ -3148,7 +3150,7 @@ static JSAtomKindEnum JS_AtomGetKind(JSContext *ctx, JSAtom v)
         else
             return JS_ATOM_KIND_SYMBOL;
     default:
-        abort();
+        js_abort();
     }
 }
 
@@ -3816,7 +3818,30 @@ static inline BOOL JS_IsEmptyString(JSValueConst v)
 /* JSClass support */
 
 #ifdef CONFIG_ATOMICS
-static pthread_mutex_t js_class_id_mutex = PTHREAD_MUTEX_INITIALIZER;
+/* One-time lazy init for a process-global JSPalMutex: JSPalMutex's host
+   representation is opaque (see quickjs-pal.h), so it cannot be statically
+   pre-initialized the way PTHREAD_MUTEX_INITIALIZER could. This -- and the
+   mutex it guards below -- always uses the default PAL (js_pal), never a
+   per-runtime custom one, because it protects state shared across every
+   JSRuntime/thread in the process. */
+static void js_pal_mutex_lazy_init(JSPalMutex *mutex, uint32_t *state)
+{
+    uint32_t expected;
+    for (;;) {
+        expected = pal_atomic32_load(state);
+        if (expected == 2)
+            return;
+        if (expected == 0 &&
+            pal_atomic32_compare_exchange(state, &expected, 1)) {
+            js_pal.mutex_init(mutex);
+            pal_atomic32_store(state, 2);
+            return;
+        }
+    }
+}
+
+static JSPalMutex js_class_id_mutex;
+static uint32_t js_class_id_mutex_state;
 #endif
 
 /* a new class ID is allocated if *pclass_id != 0 */
@@ -3824,7 +3849,8 @@ JSClassID JS_NewClassID(JSClassID *pclass_id)
 {
     JSClassID class_id;
 #ifdef CONFIG_ATOMICS
-    pthread_mutex_lock(&js_class_id_mutex);
+    js_pal_mutex_lazy_init(&js_class_id_mutex, &js_class_id_mutex_state);
+    js_pal.mutex_lock(&js_class_id_mutex);
 #endif
     class_id = *pclass_id;
     if (class_id == 0) {
@@ -3832,7 +3858,7 @@ JSClassID JS_NewClassID(JSClassID *pclass_id)
         *pclass_id = class_id;
     }
 #ifdef CONFIG_ATOMICS
-    pthread_mutex_unlock(&js_class_id_mutex);
+    js_pal.mutex_unlock(&js_class_id_mutex);
 #endif
     return class_id;
 }
@@ -6407,7 +6433,7 @@ static void free_gc_object(JSRuntime *rt, JSGCObjectHeader *gp)
         js_free_module_def(rt, (JSModuleDef *)gp);
         break;
     default:
-        abort();
+        js_abort();
     }
 }
 
@@ -6496,7 +6522,7 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
         }
         break;
     default:
-        abort();
+        js_abort();
     }
 }
 
@@ -6528,7 +6554,7 @@ static void gc_remove_weak_objects(JSRuntime *rt)
             finrec_delete_weakref(rt, wh);
             break;
         default:
-            abort();
+            js_abort();
         }
     }
 
@@ -6680,7 +6706,7 @@ static void mark_children(JSRuntime *rt, JSGCObjectHeader *gp,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
 }
 
@@ -10659,7 +10685,7 @@ static int JS_DefineAutoInitProperty(JSContext *ctx, JSValueConst this_obj,
 
     if (find_own_property(&pr, p, prop)) {
         /* property already exists */
-        abort();
+        js_abort();
         return FALSE;
     }
 
@@ -12026,7 +12052,7 @@ static JSBigInt *js_bigint_logic(JSContext *ctx, const JSBigInt *a,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
     return js_bigint_normalize(ctx, r);
 }
@@ -12921,7 +12947,7 @@ static JSValue js_atof(JSContext *ctx, const char *str, const char **pp,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
 
 done:
@@ -13050,7 +13076,7 @@ static __exception int __JS_ToFloat64Free(JSContext *ctx, double *pres,
         d = JS_VALUE_GET_FLOAT64(val);
         break;
     default:
-        abort();
+        js_abort();
     }
     *pres = d;
     return 0;
@@ -14757,7 +14783,7 @@ static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
                 }
                 break;
             default:
-                abort();
+                js_abort();
             }
             sp[-1] = JS_NewInt64(ctx, v64);
         }
@@ -14790,7 +14816,7 @@ static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
                 sp[-1] = __JS_NewShortBigInt(ctx, -v);
                 break;
             default:
-                abort();
+                js_abort();
             }
         }
         break;
@@ -14820,7 +14846,7 @@ static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
                 r = js_bigint_not(ctx, p1);
                 break;
             default:
-                abort();
+                js_abort();
             }
             JS_FreeValue(ctx, op1);
             if (!r)
@@ -14845,7 +14871,7 @@ static no_inline __exception int js_unary_arith_slow(JSContext *ctx,
                 d = -d;
                 break;
             default:
-                abort();
+                js_abort();
             }
             sp[-1] = __JS_NewFloat64(ctx, d);
         }
@@ -14952,7 +14978,7 @@ static no_inline __exception int js_binary_arith_slow(JSContext *ctx, JSValue *s
         case OP_pow:
             goto slow_big_int;
         default:
-            abort();
+            js_abort();
         }
         if (likely(v >= JS_SHORT_BIG_INT_MIN && v <= JS_SHORT_BIG_INT_MAX)) {
             sp[-2] = __JS_NewShortBigInt(ctx, v);
@@ -15008,7 +15034,7 @@ static no_inline __exception int js_binary_arith_slow(JSContext *ctx, JSValue *s
             sp[-2] = JS_NewFloat64(ctx, js_pow(v1, v2));
             return 0;
         default:
-            abort();
+            js_abort();
         }
         sp[-2] = JS_NewInt64(ctx, v);
     } else if ((tag1 == JS_TAG_SHORT_BIG_INT || tag1 == JS_TAG_BIG_INT) &&
@@ -15045,7 +15071,7 @@ static no_inline __exception int js_binary_arith_slow(JSContext *ctx, JSValue *s
             r = js_bigint_pow(ctx, p1, p2);
             break;
         default:
-            abort();
+            js_abort();
         }
         JS_FreeValue(ctx, op1);
         JS_FreeValue(ctx, op2);
@@ -15079,7 +15105,7 @@ static no_inline __exception int js_binary_arith_slow(JSContext *ctx, JSValue *s
             dr = js_pow(d1, d2);
             break;
         default:
-            abort();
+            js_abort();
         }
         sp[-2] = __JS_NewFloat64(ctx, dr);
     }
@@ -15275,7 +15301,7 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
             }
             break;
         default:
-            abort();
+            js_abort();
         }
         sp[-2] = __JS_NewShortBigInt(ctx, v);
         return 0;
@@ -15330,7 +15356,7 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
             }
             break;
         default:
-            abort();
+            js_abort();
         }
         JS_FreeValue(ctx, op1);
         JS_FreeValue(ctx, op2);
@@ -15361,7 +15387,7 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
             r = v1 ^ v2;
             break;
         default:
-            abort();
+            js_abort();
         }
         sp[-2] = JS_NewInt32(ctx, r);
     }
@@ -15389,7 +15415,7 @@ static JSBigInt *JS_ToBigIntBuf(JSContext *ctx, JSBigIntBuf *buf1,
         p1 = JS_VALUE_GET_PTR(op1);
         break;
     default:
-        abort();
+        js_abort();
     }
     return p1;
 }
@@ -15460,7 +15486,7 @@ static int js_compare_bigint(JSContext *ctx, OPCodeEnum op,
         res = val == 0;
         break;
     default:
-        abort();
+        js_abort();
     }
     return res;
 }
@@ -17324,7 +17350,7 @@ static JSValue js_closure2(JSContext *ctx, JSValue func_obj,
                 js_rc(var_ref)->ref_count++;
                 break;
             default:
-                abort();
+                js_abort();
             }
             if (!var_ref)
                 goto fail;
@@ -17681,7 +17707,7 @@ static JSValue js_call_c_function(JSContext *ctx, JSValueConst func_obj,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
 
     rt->current_stack_frame = sf->prev_frame;
@@ -18005,7 +18031,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         goto exception;
                     break;
                 default:
-                    abort();
+                    js_abort();
                 }
             }
             BREAK;
@@ -21656,12 +21682,12 @@ static void js_async_generator_resume_next(JSContext *ctx,
                     }
                     goto done;
                 default:
-                    abort();
+                    js_abort();
                 }
             }
             break;
         default:
-            abort();
+            js_abort();
         }
     }
  done: ;
@@ -24423,7 +24449,7 @@ static int define_var(JSParseState *s, JSFunctionDef *fd, JSAtom name,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
     return idx;
 }
@@ -26030,7 +26056,7 @@ static __exception int get_lvalue(JSParseState *s, int *popcode, int *pscope,
             emit_op(s, OP_get_super_value);
             break;
         default:
-            abort();
+            js_abort();
         }
     } else {
         switch(opcode) {
@@ -26091,7 +26117,7 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_dup);
             break;
         default:
-            abort();
+            js_abort();
         }
         break;
     case OP_get_field:
@@ -26111,7 +26137,7 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_swap);
             break;
         default:
-            abort();
+            js_abort();
         }
         break;
     case OP_get_array_el:
@@ -26137,7 +26163,7 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_rot3l);
             break;
         default:
-            abort();
+            js_abort();
         }
         break;
     case OP_get_super_value:
@@ -26156,7 +26182,7 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_rot4l);
             break;
         default:
-            abort();
+            js_abort();
         }
         break;
     default:
@@ -26188,7 +26214,7 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
         emit_op(s, OP_put_super_value);
         break;
     default:
-        abort();
+        js_abort();
     }
 }
 
@@ -26240,7 +26266,7 @@ static __exception int js_define_var(JSParseState *s, JSAtom name, int tok)
         var_def_type = JS_VAR_DEF_CATCH;
         break;
     default:
-        abort();
+        js_abort();
     }
     if (define_var(s, fd, name, var_def_type) < 0)
         return -1;
@@ -26534,7 +26560,7 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                             emit_op(s, OP_rot5l);
                             break;
                         default:
-                            abort();
+                            js_abort();
                         }
                     } else {
                         switch(depth_lvalue) {
@@ -26553,7 +26579,7 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                             emit_op(s, OP_rot4l);
                             break;
                         default:
-                            abort();
+                            js_abort();
                         }
                     }
                 }
@@ -27628,7 +27654,7 @@ static __exception int js_parse_unary(JSParseState *s, int parse_flags)
             emit_op(s, OP_undefined);
             break;
         default:
-            abort();
+            js_abort();
         }
         parse_flags = 0;
         break;
@@ -27884,7 +27910,7 @@ static __exception int js_parse_expr_binary(JSParseState *s, int level,
             }
             break;
         default:
-            abort();
+            js_abort();
         }
         if (next_token(s))
             return -1;
@@ -28258,7 +28284,7 @@ static __exception int js_parse_assign_expr2(JSParseState *s, int parse_flags)
             emit_op(s, OP_insert4);
             break;
         default:
-            abort();
+            js_abort();
         }
 
         /* XXX: we disable the OP_put_ref_value optimization by not
@@ -33527,7 +33553,7 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
             dbuf_putc(bc, JS_THROW_VAR_RO);
             break;
         default:
-            abort();
+            js_abort();
         }
         break;
     case OP_scope_put_private_field:
@@ -33570,7 +33596,7 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
             }
             break;
         default:
-            abort();
+            js_abort();
         }
         break;
     case OP_scope_in_private_field:
@@ -33578,7 +33604,7 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
         dbuf_putc(bc, OP_private_in);
         break;
     default:
-        abort();
+        js_abort();
     }
     return 0;
 }
@@ -33849,7 +33875,7 @@ static __exception int add_closure_variables(JSContext *ctx, JSFunctionDef *s,
         case JS_CLOSURE_GLOBAL:
             continue; /* not necessary to add global variables */
         default:
-            abort();
+            js_abort();
         }
         cv = &s->closure_var[s->closure_var_count++];
         cv->closure_type = JS_CLOSURE_REF;
@@ -34069,7 +34095,7 @@ static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, Dy
                 goto closure_found;
             }
         }
-        abort();
+        js_abort();
     closure_found:
         if (hf->cpool_idx >= 0 || force_init) {
             if (hf->cpool_idx >= 0) {
@@ -39545,7 +39571,7 @@ static JSAtom find_atom(JSContext *ctx, const char *name)
             if (str->len == len && !memcmp(str->u.str8, name, len))
                 return JS_DupAtom(ctx, atom);
         }
-        abort();
+        js_abort();
     } else {
         atom = JS_NewAtom(ctx, name);
     }
@@ -39590,7 +39616,7 @@ static JSValue JS_InstantiateFunctionListItem2(JSContext *ctx, JSObject *p,
                                     e->u.prop_list.tab, e->u.prop_list.len);
         break;
     default:
-        abort();
+        js_abort();
     }
     return val;
 }
@@ -39617,7 +39643,7 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
                 val = JS_GetProperty(ctx, ctx->class_proto[JS_CLASS_ARRAY], atom1);
                 break;
             default:
-                abort();
+                js_abort();
             }
             JS_FreeAtom(ctx, atom1);
             if (JS_IsException(val))
@@ -39699,7 +39725,7 @@ static int JS_InstantiateFunctionListItem(JSContext *ctx, JSValueConst obj,
             return -1;
         return 0;
     default:
-        abort();
+        js_abort();
     }
     if (JS_DefinePropertyValue(ctx, obj, atom, val, prop_flags) < 0)
         return -1;
@@ -39765,7 +39791,7 @@ int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
                                         e->u.prop_list.tab, e->u.prop_list.len);
             break;
         default:
-            abort();
+            js_abort();
         }
         if (JS_SetModuleExport(ctx, m, e->name, val))
             return -1;
@@ -44109,7 +44135,7 @@ static JSValue js_create_iterator_helper(JSContext *ctx, JSValueConst this_val,
         }
         break;
     default:
-        abort();
+        js_abort();
         break;
     }
 
@@ -44284,7 +44310,7 @@ static JSValue js_iterator_proto_func(JSContext *ctx, JSValueConst this_val,
         }
         break;
     default:
-        abort();
+        js_abort();
         break;
     }
 
@@ -44701,7 +44727,7 @@ static JSValue js_iterator_helper_next(JSContext *ctx, JSValueConst this_val,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
 
  done:
@@ -47372,9 +47398,9 @@ static uint64_t xorshift64star(uint64_t *pstate)
 
 static void js_random_init(JSContext *ctx)
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    ctx->random_state = ((int64_t)tv.tv_sec * 1000000) + tv.tv_usec;
+    JSPalTime t;
+    ctx->rt->pal.get_time(&t);
+    ctx->random_state = ((int64_t)t.sec * 1000000) + t.usec;
     /* the state must be non zero */
     if (ctx->random_state == 0)
         ctx->random_state = 1;
@@ -47449,60 +47475,12 @@ static const JSCFunctionListEntry js_math_obj[] = {
 
 /* Date */
 
-/* OS dependent. d = argv[0] is in ms from 1970. Return the difference
-   between UTC time and local time 'd' in minutes */
-static int getTimezoneOffset(int64_t time)
+/* d = argv[0] is in ms from 1970. Return the difference between UTC time
+   and local time 'd' in minutes. OS-dependent logic lives in the PAL
+   (see quickjs-pal.c's pal_get_timezone_offset()). */
+static int getTimezoneOffset(JSRuntime *rt, int64_t time)
 {
-    time_t ti;
-    int res;
-
-    time /= 1000; /* convert to seconds */
-    if (sizeof(time_t) == 4) {
-        /* on 32-bit systems, we need to clamp the time value to the
-           range of `time_t`. This is better than truncating values to
-           32 bits and hopefully provides the same result as 64-bit
-           implementation of localtime_r.
-         */
-        if ((time_t)-1 < 0) {
-            if (time < INT32_MIN) {
-                time = INT32_MIN;
-            } else if (time > INT32_MAX) {
-                time = INT32_MAX;
-            }
-        } else {
-            if (time < 0) {
-                time = 0;
-            } else if (time > UINT32_MAX) {
-                time = UINT32_MAX;
-            }
-        }
-    }
-    ti = time;
-#if defined(_WIN32)
-    {
-        struct tm *tm;
-        time_t gm_ti, loc_ti;
-
-        tm = gmtime(&ti);
-        if (!tm)
-            return 0;
-        gm_ti = mktime(tm);
-
-        tm = localtime(&ti);
-        if (!tm)
-            return 0;
-        loc_ti = mktime(tm);
-
-        res = (gm_ti - loc_ti) / 60;
-    }
-#else
-    {
-        struct tm tm;
-        localtime_r(&ti, &tm);
-        res = -tm.tm_gmtoff / 60;
-    }
-#endif
-    return res;
+    return rt->pal.get_timezone_offset(time);
 }
 
 #if 0
@@ -47516,7 +47494,7 @@ static JSValue js___date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val
     if (isnan(dd))
         return __JS_NewFloat64(ctx, dd);
     else
-        return JS_NewInt32(ctx, getTimezoneOffset((int64_t)dd));
+        return JS_NewInt32(ctx, getTimezoneOffset(ctx->rt, (int64_t)dd));
 }
 
 static JSValue js_get_prototype_from_ctor(JSContext *ctx, JSValueConst ctor,
@@ -55103,7 +55081,7 @@ static __exception int get_date_fields(JSContext *ctx, JSValueConst obj,
     } else {
         d = dval;     /* assuming -8.64e15 <= dval <= -8.64e15 */
         if (is_local) {
-            tz = -getTimezoneOffset(d);
+            tz = -getTimezoneOffset(ctx->rt, d);
             d += tz * 60000;
         }
     }
@@ -55149,7 +55127,7 @@ static double time_clip(double t) {
 
 /* The spec mandates the use of 'double' and it specifies the order
    of the operations */
-static double set_date_fields(double fields[minimum_length(7)], int is_local) {
+static double set_date_fields(JSRuntime *rt, double fields[minimum_length(7)], int is_local) {
     double y, m, dt, ym, mn, day, h, s, milli, time, tv;
     int yi, mi, i;
     int64_t days;
@@ -55201,12 +55179,12 @@ static double set_date_fields(double fields[minimum_length(7)], int is_local) {
     /* adjust for local time and clip */
     if (is_local) {
         int64_t ti = tv < INT64_MIN ? INT64_MIN : tv >= 0x1p63 ? INT64_MAX : (int64_t)tv;
-        tv += getTimezoneOffset(ti) * 60000;
+        tv += getTimezoneOffset(rt, ti) * 60000;
     }
     return time_clip(tv);
 }
 
-static double set_date_fields_checked(double fields[minimum_length(7)], int is_local)
+static double set_date_fields_checked(JSRuntime *rt, double fields[minimum_length(7)], int is_local)
 {
     int i;
     double a;
@@ -55218,7 +55196,7 @@ static double set_date_fields_checked(double fields[minimum_length(7)], int is_l
         if (i == 0 && fields[0] >= 0 && fields[0] < 100)
             fields[0] += 1900;
     }
-    return set_date_fields(fields, is_local);
+    return set_date_fields(rt, fields, is_local);
 }
 
 static JSValue get_date_field(JSContext *ctx, JSValueConst this_val,
@@ -55274,7 +55252,7 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
         return JS_NAN; /* thisTimeValue is NaN */
 
     if (res && argc > 0)
-        d = set_date_fields(fields, is_local);
+        d = set_date_fields(ctx->rt, fields, is_local);
 
     return JS_SetThisTimeValue(ctx, this_val, d);
 }
@@ -55394,10 +55372,10 @@ static JSValue get_date_string(JSContext *ctx, JSValueConst this_val,
 }
 
 /* OS dependent: return the UTC time in ms since 1970. */
-static int64_t date_now(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+static int64_t date_now(JSRuntime *rt) {
+    JSPalTime t;
+    rt->pal.get_time(&t);
+    return (int64_t)t.sec * 1000 + (t.usec / 1000);
 }
 
 static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
@@ -55414,7 +55392,7 @@ static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
     }
     n = argc;
     if (n == 0) {
-        val = date_now();
+        val = date_now(ctx->rt);
     } else if (n == 1) {
         JSValue v, dv;
         if (JS_VALUE_GET_TAG(argv[0]) == JS_TAG_OBJECT) {
@@ -55447,7 +55425,7 @@ static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
             if (JS_ToFloat64(ctx, &fields[i], argv[i]))
                 return JS_EXCEPTION;
         }
-        val = set_date_fields_checked(fields, 1);
+        val = set_date_fields_checked(ctx->rt, fields, 1);
     }
 has_val:
 #if 0
@@ -55487,7 +55465,7 @@ static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
         if (JS_ToFloat64(ctx, &fields[i], argv[i]))
             return JS_EXCEPTION;
     }
-    return JS_NewFloat64(ctx, set_date_fields_checked(fields, 0));
+    return JS_NewFloat64(ctx, set_date_fields_checked(ctx->rt, fields, 0));
 }
 
 /* Date string parsing */
@@ -55946,7 +55924,7 @@ static JSValue js_Date_parse(JSContext *ctx, JSValueConst this_val,
         if (valid) {
             for(i = 0; i < 7; i++)
                 fields1[i] = fields[i];
-            d = set_date_fields(fields1, is_local) - fields[8] * 60000;
+            d = set_date_fields(ctx->rt, fields1, is_local) - fields[8] * 60000;
             rv = JS_NewFloat64(ctx, d);
         }
     }
@@ -55958,7 +55936,7 @@ static JSValue js_Date_now(JSContext *ctx, JSValueConst this_val,
                            int argc, JSValueConst *argv)
 {
     // now()
-    return JS_NewInt64(ctx, date_now());
+    return JS_NewInt64(ctx, date_now(ctx->rt));
 }
 
 static JSValue js_date_Symbol_toPrimitive(JSContext *ctx, JSValueConst this_val,
@@ -56005,7 +55983,7 @@ static JSValue js_date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val,
         return JS_NAN;
     else
         /* assuming -8.64e15 <= v <= -8.64e15 */
-        return JS_NewInt64(ctx, getTimezoneOffset((int64_t)trunc(v)));
+        return JS_NewInt64(ctx, getTimezoneOffset(ctx->rt, (int64_t)trunc(v)));
 }
 
 static JSValue js_date_getTime(JSContext *ctx, JSValueConst this_val,
@@ -57998,7 +57976,7 @@ static JSValue js_typed_array_fill(JSContext *ctx, JSValueConst this_val,
         }
         break;
     default:
-        abort();
+        js_abort();
     }
     return JS_DupValue(ctx, this_val);
 }
@@ -58492,7 +58470,7 @@ static JSValue js_typed_array_reverse(JSContext *ctx, JSValueConst this_val,
             }
             break;
         default:
-            abort();
+            js_abort();
         }
     }
     return JS_DupValue(ctx, this_val);
@@ -58870,7 +58848,7 @@ static JSValue js_typed_array_sort(JSContext *ctx, JSValueConst this_val,
             cmpfun = js_TA_cmp_float64;
             break;
         default:
-            abort();
+            js_abort();
         }
         elt_size = 1 << typed_array_size_log2(p->class_id);
         if (!JS_IsUndefined(tsc.cmp)) {
@@ -58933,7 +58911,7 @@ static JSValue js_typed_array_sort(JSContext *ctx, JSValueConst this_val,
                     }
                     break;
                 default:
-                    abort();
+                    js_abort();
                 }
             }
             js_free(ctx, array_idx);
@@ -60381,7 +60359,7 @@ static JSValue js_dataview_getValue(JSContext *ctx,
             return __JS_NewFloat64(ctx, u.f);
         }
     default:
-        abort();
+        js_abort();
     }
 }
 
@@ -60475,7 +60453,7 @@ static JSValue js_dataview_setValue(JSContext *ctx,
         put_u64(ptr, v64);
         break;
     default:
-        abort();
+        js_abort();
     }
     return JS_UNDEFINED;
 }
@@ -60634,71 +60612,71 @@ static JSValue js_atomics_op(JSContext *ctx,
     
     switch(op | (size_log2 << 3)) {
 
-#define OP(op_name, func_name)                          \
-    case ATOMICS_OP_ ## op_name | (0 << 3):             \
-       a = func_name((_Atomic(uint8_t) *)ptr, v);       \
-       break;                                           \
-    case ATOMICS_OP_ ## op_name | (1 << 3):             \
-        a = func_name((_Atomic(uint16_t) *)ptr, v);     \
-        break;                                          \
-    case ATOMICS_OP_ ## op_name | (2 << 3):             \
-        a = func_name((_Atomic(uint32_t) *)ptr, v);     \
-        break;                                          \
-    case ATOMICS_OP_ ## op_name | (3 << 3):             \
-        a = func_name((_Atomic(uint64_t) *)ptr, v);     \
+#define OP(op_name, func_name)                            \
+    case ATOMICS_OP_ ## op_name | (0 << 3):               \
+       a = pal_atomic8_ ## func_name((uint8_t *)ptr, v);  \
+       break;                                             \
+    case ATOMICS_OP_ ## op_name | (1 << 3):                 \
+        a = pal_atomic16_ ## func_name((uint16_t *)ptr, v); \
+        break;                                               \
+    case ATOMICS_OP_ ## op_name | (2 << 3):                 \
+        a = pal_atomic32_ ## func_name((uint32_t *)ptr, v); \
+        break;                                               \
+    case ATOMICS_OP_ ## op_name | (3 << 3):                 \
+        a = pal_atomic64_ ## func_name((uint64_t *)ptr, v); \
         break;
 
-        OP(ADD, atomic_fetch_add)
-        OP(AND, atomic_fetch_and)
-        OP(OR, atomic_fetch_or)
-        OP(SUB, atomic_fetch_sub)
-        OP(XOR, atomic_fetch_xor)
-        OP(EXCHANGE, atomic_exchange)
+        OP(ADD, fetch_add)
+        OP(AND, fetch_and)
+        OP(OR, fetch_or)
+        OP(SUB, fetch_sub)
+        OP(XOR, fetch_xor)
+        OP(EXCHANGE, exchange)
 #undef OP
 
     case ATOMICS_OP_LOAD | (0 << 3):
-        a = atomic_load((_Atomic(uint8_t) *)ptr);
+        a = pal_atomic8_load((uint8_t *)ptr);
         break;
     case ATOMICS_OP_LOAD | (1 << 3):
-        a = atomic_load((_Atomic(uint16_t) *)ptr);
+        a = pal_atomic16_load((uint16_t *)ptr);
         break;
     case ATOMICS_OP_LOAD | (2 << 3):
-        a = atomic_load((_Atomic(uint32_t) *)ptr);
+        a = pal_atomic32_load((uint32_t *)ptr);
         break;
     case ATOMICS_OP_LOAD | (3 << 3):
-        a = atomic_load((_Atomic(uint64_t) *)ptr);
+        a = pal_atomic64_load((uint64_t *)ptr);
         break;
 
     case ATOMICS_OP_COMPARE_EXCHANGE | (0 << 3):
         {
             uint8_t v1 = v;
-            atomic_compare_exchange_strong((_Atomic(uint8_t) *)ptr, &v1, rep_val);
+            pal_atomic8_compare_exchange((uint8_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     case ATOMICS_OP_COMPARE_EXCHANGE | (1 << 3):
         {
             uint16_t v1 = v;
-            atomic_compare_exchange_strong((_Atomic(uint16_t) *)ptr, &v1, rep_val);
+            pal_atomic16_compare_exchange((uint16_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     case ATOMICS_OP_COMPARE_EXCHANGE | (2 << 3):
         {
             uint32_t v1 = v;
-            atomic_compare_exchange_strong((_Atomic(uint32_t) *)ptr, &v1, rep_val);
+            pal_atomic32_compare_exchange((uint32_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     case ATOMICS_OP_COMPARE_EXCHANGE | (3 << 3):
         {
             uint64_t v1 = v;
-            atomic_compare_exchange_strong((_Atomic(uint64_t) *)ptr, &v1, rep_val);
+            pal_atomic64_compare_exchange((uint64_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     default:
-        abort();
+        js_abort();
     }
 
     switch(p->class_id) {
@@ -60728,7 +60706,7 @@ static JSValue js_atomics_op(JSContext *ctx,
         ret = JS_NewBigUint64(ctx, a);
         break;
     default:
-        abort();
+        js_abort();
     }
     return ret;
 }
@@ -60777,19 +60755,19 @@ static JSValue js_atomics_store(JSContext *ctx,
     
     switch(size_log2) {
     case 0:
-        atomic_store((_Atomic(uint8_t) *)ptr, v);
+        pal_atomic8_store((uint8_t *)ptr, v);
         break;
     case 1:
-        atomic_store((_Atomic(uint16_t) *)ptr, v);
+        pal_atomic16_store((uint16_t *)ptr, v);
         break;
     case 2:
-        atomic_store((_Atomic(uint32_t) *)ptr, v);
+        pal_atomic32_store((uint32_t *)ptr, v);
         break;
     case 3:
-        atomic_store((_Atomic(uint64_t) *)ptr, v);
+        pal_atomic64_store((uint64_t *)ptr, v);
         break;
     default:
-        abort();
+        js_abort();
     }
     return ret;
 }
@@ -60808,11 +60786,12 @@ static JSValue js_atomics_isLockFree(JSContext *ctx,
 typedef struct JSAtomicsWaiter {
     struct list_head link;
     BOOL linked;
-    pthread_cond_t cond;
+    JSPalCond cond;
     int32_t *ptr;
 } JSAtomicsWaiter;
 
-static pthread_mutex_t js_atomics_mutex = PTHREAD_MUTEX_INITIALIZER;
+static JSPalMutex js_atomics_mutex;
+static uint32_t js_atomics_mutex_state;
 static struct list_head js_atomics_waiter_list =
     LIST_HEAD_INIT(js_atomics_waiter_list);
 
@@ -60869,7 +60848,7 @@ static JSValue js_atomics_wait(JSContext *ctx,
     uint64_t idx;
     void *ptr;
     int64_t timeout;
-    struct timespec ts;
+    JSPalTime deadline;
     JSAtomicsWaiter waiter_s, *waiter;
     int ret, size_log2, res;
     double d;
@@ -60904,43 +60883,48 @@ static JSValue js_atomics_wait(JSContext *ctx,
     /* XXX: inefficient if large number of waiters, should hash on
        'ptr' value */
     /* XXX: use Linux futexes when available ? */
-    pthread_mutex_lock(&js_atomics_mutex);
+    js_pal_mutex_lazy_init(&js_atomics_mutex, &js_atomics_mutex_state);
+    js_pal.mutex_lock(&js_atomics_mutex);
     if (size_log2 == 3) {
         res = *(int64_t *)ptr != v;
     } else {
         res = *(int32_t *)ptr != v;
     }
     if (res) {
-        pthread_mutex_unlock(&js_atomics_mutex);
+        js_pal.mutex_unlock(&js_atomics_mutex);
         return JS_AtomToString(ctx, JS_ATOM_not_equal);
     }
 
     waiter = &waiter_s;
     waiter->ptr = ptr;
-    pthread_cond_init(&waiter->cond, NULL);
+    js_pal.cond_init(&waiter->cond);
     waiter->linked = TRUE;
     list_add_tail(&waiter->link, &js_atomics_waiter_list);
 
     if (timeout == INT64_MAX) {
-        pthread_cond_wait(&waiter->cond, &js_atomics_mutex);
+        js_pal.cond_wait(&waiter->cond, &js_atomics_mutex);
         ret = 0;
     } else {
-        /* XXX: use clock monotonic */
-        clock_gettime(CLOCK_REALTIME, &ts);
-        ts.tv_sec += timeout / 1000;
-        ts.tv_nsec += (timeout % 1000) * 1000000;
-        if (ts.tv_nsec >= 1000000000) {
-            ts.tv_nsec -= 1000000000;
-            ts.tv_sec++;
+        /* deadline is wall-clock based (matches the pre-PAL
+           CLOCK_REALTIME behavior): switching to a monotonic deadline
+           would require every JSPalCond to be created against the
+           monotonic clock (pthread_condattr_setclock), which macOS's
+           libc does not support, so it is not done here. */
+        js_pal.get_time(&deadline);
+        deadline.sec += timeout / 1000;
+        deadline.usec += (timeout % 1000) * 1000;
+        if (deadline.usec >= 1000000) {
+            deadline.usec -= 1000000;
+            deadline.sec++;
         }
-        ret = pthread_cond_timedwait(&waiter->cond, &js_atomics_mutex,
-                                     &ts);
+        ret = js_pal.cond_timedwait(&waiter->cond, &js_atomics_mutex,
+                                    &deadline);
     }
     if (waiter->linked)
         list_del(&waiter->link);
-    pthread_mutex_unlock(&js_atomics_mutex);
-    pthread_cond_destroy(&waiter->cond);
-    if (ret == ETIMEDOUT) {
+    js_pal.mutex_unlock(&js_atomics_mutex);
+    js_pal.cond_destroy(&waiter->cond);
+    if (ret != 0) {
         return JS_AtomToString(ctx, JS_ATOM_timed_out);
     } else {
         return JS_AtomToString(ctx, JS_ATOM_ok);
@@ -60977,7 +60961,8 @@ static JSValue js_atomics_notify(JSContext *ctx,
     if (abuf->shared && count > 0) {
         /* 'argv[0]' is a SharedArrayBuffer so it cannot be detached nor reduced */
         ptr = p->u.array.u.uint8_ptr + ((uintptr_t)idx << size_log2);
-        pthread_mutex_lock(&js_atomics_mutex);
+        js_pal_mutex_lazy_init(&js_atomics_mutex, &js_atomics_mutex_state);
+        js_pal.mutex_lock(&js_atomics_mutex);
         init_list_head(&waiter_list);
         list_for_each_safe(el, el1, &js_atomics_waiter_list) {
             waiter = list_entry(el, JSAtomicsWaiter, link);
@@ -60992,9 +60977,9 @@ static JSValue js_atomics_notify(JSContext *ctx,
         }
         list_for_each(el, &waiter_list) {
             waiter = list_entry(el, JSAtomicsWaiter, link);
-            pthread_cond_signal(&waiter->cond);
+            js_pal.cond_signal(&waiter->cond);
         }
-        pthread_mutex_unlock(&js_atomics_mutex);
+        js_pal.mutex_unlock(&js_atomics_mutex);
     }
     return JS_NewInt32(ctx, n);
 }

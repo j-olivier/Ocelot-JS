@@ -366,6 +366,47 @@ typedef struct JSMallocFunctions {
 
 typedef struct JSGCObjectHeader JSGCObjectHeader;
 
+/* PAL (Platform Abstraction Layer): host OS primitives other than memory
+   allocation (which stays under JSMallocFunctions above). Opaque handle
+   types are fixed-size blobs sized to hold a native primitive (e.g.
+   pthread_mutex_t or a Win32 CRITICAL_SECTION) without heap allocation. */
+typedef struct JSPalTime {
+    int64_t sec;
+    int64_t usec;
+} JSPalTime;
+
+typedef struct JSPalMutex  { union { void *_align; unsigned char opaque[64]; }; } JSPalMutex;
+typedef struct JSPalCond   { union { void *_align; unsigned char opaque[64]; }; } JSPalCond;
+typedef struct JSPalThread { union { void *_align; unsigned char opaque[64]; }; } JSPalThread;
+
+typedef struct JSPal {
+    void (*abort)(void);
+    /* wall clock time (gettimeofday-equivalent) */
+    void (*get_time)(JSPalTime *t);
+    /* monotonic clock, unaffected by wall-clock adjustments */
+    void (*get_time_monotonic)(JSPalTime *t);
+    /* timezone offset in minutes for the given time (ms since epoch) */
+    int (*get_timezone_offset)(int64_t time_ms);
+
+    void (*mutex_init)(JSPalMutex *mutex);
+    void (*mutex_destroy)(JSPalMutex *mutex);
+    void (*mutex_lock)(JSPalMutex *mutex);
+    void (*mutex_unlock)(JSPalMutex *mutex);
+
+    void (*cond_init)(JSPalCond *cond);
+    void (*cond_destroy)(JSPalCond *cond);
+    void (*cond_wait)(JSPalCond *cond, JSPalMutex *mutex);
+    /* returns 0 on success, nonzero on timeout */
+    int (*cond_timedwait)(JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime);
+    void (*cond_signal)(JSPalCond *cond);
+    void (*cond_broadcast)(JSPalCond *cond);
+
+    /* stack_size == 0 means "use the platform default" */
+    int (*thread_create)(JSPalThread *thread, void *(*start)(void *arg), void *arg,
+                          size_t stack_size);
+    int (*thread_join)(JSPalThread *thread);
+} JSPal;
+
 JSRuntime *JS_NewRuntime(void);
 /* info lifetime must exceed that of rt */
 void JS_SetRuntimeInfo(JSRuntime *rt, const char *info);
@@ -377,6 +418,10 @@ void JS_SetMaxStackSize(JSRuntime *rt, size_t stack_size);
    used to check stack overflow. */
 void JS_UpdateStackTop(JSRuntime *rt);
 JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque);
+/* like JS_NewRuntime2() but also overrides the host OS primitives (time,
+   thread synchronization, panic). Passing pal == NULL uses the default
+   PAL (js_pal, see quickjs-pal.h), same as JS_NewRuntime2(). */
+JSRuntime *JS_NewRuntimePal(const JSMallocFunctions *mf, const JSPal *pal, void *opaque);
 void JS_FreeRuntime(JSRuntime *rt);
 void *JS_GetRuntimeOpaque(JSRuntime *rt);
 void JS_SetRuntimeOpaque(JSRuntime *rt, void *opaque);

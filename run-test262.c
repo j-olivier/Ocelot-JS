@@ -34,8 +34,6 @@
 #include <time.h>
 #include <dirent.h>
 #include <ftw.h>
-#include <stdatomic.h>
-#include <pthread.h>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -43,6 +41,7 @@
 #include "cutils.h"
 #include "list.h"
 #include "quickjs-libc.h"
+#include "quickjs-pal.h"
 
 #define CMD_NAME "run-test262"
 
@@ -54,12 +53,12 @@ typedef struct namelist_t {
 
 /* per execution thread context */
 typedef struct {
-    pthread_mutex_t agent_mutex;
-    pthread_cond_t agent_cond;
+    JSPalMutex agent_mutex;
+    JSPalCond agent_cond;
     /* list of Test262Agent.link */
     struct list_head agent_list;
 
-    pthread_mutex_t report_mutex;
+    JSPalMutex report_mutex;
     /* list of AgentReport.link */
     struct list_head report_list;
 
@@ -69,7 +68,7 @@ typedef struct {
 typedef struct {
     struct list_head link;
     ThreadLocalStorage *tls;
-    pthread_t tid;
+    JSPalThread tid;
     char *script;
     JSValue broadcast_func;
     BOOL broadcast_pending;
@@ -88,13 +87,13 @@ namelist_t test_list;
 namelist_t exclude_list;
 namelist_t exclude_dir_list;
 namelist_t error_list;
-pthread_mutex_t error_list_mutex;
+JSPalMutex error_list_mutex;
 
 int nthreads;
-pthread_t progress_thread;
+JSPalThread progress_thread;
 BOOL progress_exit_request;
-pthread_cond_t progress_cond;
-pthread_mutex_t progress_mutex;
+JSPalCond progress_cond;
+JSPalMutex progress_mutex;
 
 FILE *outfile;
 enum test_mode_t {
@@ -114,7 +113,7 @@ int stats_count;
 JSMemoryUsage stats_all, stats_avg, stats_min, stats_max;
 char *stats_min_filename;
 char *stats_max_filename;
-pthread_mutex_t stats_mutex;
+JSPalMutex stats_mutex;
 int verbose;
 char *harness_dir;
 char *harness_exclude;
@@ -128,15 +127,15 @@ int update_errors;
 int slow_test_threshold;
 int start_index, stop_index;
 int test_excluded;
-_Atomic int test_count, test_failed, test_skipped;
-_Atomic int new_errors, changed_errors, fixed_errors;
+uint32_t test_count, test_failed, test_skipped;
+uint32_t new_errors, changed_errors, fixed_errors;
 
 void warning(const char *, ...) __attribute__((__format__(__printf__, 1, 2)));
 void fatal(int, const char *, ...) __attribute__((__format__(__printf__, 2, 3)));
 
-void atomic_inc(volatile _Atomic int *p)
+void atomic_inc(uint32_t *p)
 {
-    atomic_fetch_add(p, 1);
+    pal_atomic32_fetch_add(p, 1);
 }
 
 #if defined(_WIN32)
@@ -226,11 +225,11 @@ static int cpu_count(void)
 static void init_thread_local_storage(ThreadLocalStorage *tls)
 {
     memset(tls, 0, sizeof(*tls));
-    pthread_mutex_init(&tls->agent_mutex, NULL);
-    pthread_cond_init(&tls->agent_cond, NULL);
+    js_pal.mutex_init(&tls->agent_mutex);
+    js_pal.cond_init(&tls->agent_cond);
     init_list_head(&tls->agent_list);
 
-    pthread_mutex_init(&tls->report_mutex, NULL);
+    js_pal.mutex_init(&tls->report_mutex);
     init_list_head(&tls->report_list);
 }
 
@@ -625,15 +624,15 @@ static void *agent_start(void *arg)
             } else {
                 JSValue args[2];
 
-                pthread_mutex_lock(&tls->agent_mutex);
+                js_pal.mutex_lock(&tls->agent_mutex);
                 while (!agent->broadcast_pending) {
-                    pthread_cond_wait(&tls->agent_cond, &tls->agent_mutex);
+                    js_pal.cond_wait(&tls->agent_cond, &tls->agent_mutex);
                 }
 
                 agent->broadcast_pending = FALSE;
-                pthread_cond_signal(&tls->agent_cond);
+                js_pal.cond_signal(&tls->agent_cond);
 
-                pthread_mutex_unlock(&tls->agent_mutex);
+                js_pal.mutex_unlock(&tls->agent_mutex);
 
                 args[0] = JS_NewArrayBuffer(ctx, agent->broadcast_sab_buf,
                                             agent->broadcast_sab_size,
@@ -664,7 +663,6 @@ static JSValue js_agent_start(JSContext *ctx, JSValue this_val,
     ThreadLocalStorage *tls = JS_GetRuntimeOpaque(JS_GetRuntime(ctx));
     const char *script;
     Test262Agent *agent;
-    pthread_attr_t attr;
 
     if (JS_GetContextOpaque(ctx) != NULL)
         return JS_ThrowTypeError(ctx, "cannot be called inside an agent");
@@ -680,12 +678,9 @@ static JSValue js_agent_start(JSContext *ctx, JSValue this_val,
     agent->script = strdup(script);
     JS_FreeCString(ctx, script);
     list_add_tail(&agent->link, &tls->agent_list);
-    pthread_attr_init(&attr);
     // musl libc gives threads 80 kb stacks, much smaller than
     // JS_DEFAULT_STACK_SIZE (256 kb)
-    pthread_attr_setstacksize(&attr, 2 << 20); // 2 MB, glibc default
-    pthread_create(&agent->tid, &attr, agent_start, agent);
-    pthread_attr_destroy(&attr);
+    js_pal.thread_create(&agent->tid, agent_start, agent, 2 << 20); // 2 MB, glibc default
     return JS_UNDEFINED;
 }
 
@@ -697,7 +692,7 @@ static void js_agent_free(JSContext *ctx)
 
     list_for_each_safe(el, el1, &tls->agent_list) {
         agent = list_entry(el, Test262Agent, link);
-        pthread_join(agent->tid, NULL);
+        js_pal.thread_join(&agent->tid);
         JS_FreeValue(ctx, agent->broadcast_sab);
         list_del(&agent->link);
         free(agent);
@@ -748,7 +743,7 @@ static JSValue js_agent_broadcast(JSContext *ctx, JSValue this_val,
 
     /* broadcast the values and wait until all agents have started
        calling their callbacks */
-    pthread_mutex_lock(&tls->agent_mutex);
+    js_pal.mutex_lock(&tls->agent_mutex);
     list_for_each(el, &tls->agent_list) {
         agent = list_entry(el, Test262Agent, link);
         agent->broadcast_pending = TRUE;
@@ -759,12 +754,12 @@ static JSValue js_agent_broadcast(JSContext *ctx, JSValue this_val,
         agent->broadcast_sab_size = buf_size;
         agent->broadcast_val = val;
     }
-    pthread_cond_broadcast(&tls->agent_cond);
+    js_pal.cond_broadcast(&tls->agent_cond);
 
     while (is_broadcast_pending(tls)) {
-        pthread_cond_wait(&tls->agent_cond, &tls->agent_mutex);
+        js_pal.cond_wait(&tls->agent_cond, &tls->agent_mutex);
     }
-    pthread_mutex_unlock(&tls->agent_mutex);
+    js_pal.mutex_unlock(&tls->agent_mutex);
     return JS_UNDEFINED;
 }
 
@@ -781,21 +776,45 @@ static JSValue js_agent_receiveBroadcast(JSContext *ctx, JSValue this_val,
     return JS_UNDEFINED;
 }
 
+/* JSPal has no dedicated sleep primitive; emulate one with a timed wait
+   on a private cond/mutex pair that nothing ever signals. */
+static void pal_sleep_ms(int64_t duration_ms)
+{
+    JSPalMutex mutex;
+    JSPalCond cond;
+    JSPalTime deadline;
+
+    js_pal.mutex_init(&mutex);
+    js_pal.cond_init(&cond);
+    js_pal.mutex_lock(&mutex);
+    js_pal.get_time(&deadline);
+    deadline.sec += duration_ms / 1000;
+    deadline.usec += (duration_ms % 1000) * 1000;
+    if (deadline.usec >= 1000000) {
+        deadline.usec -= 1000000;
+        deadline.sec++;
+    }
+    js_pal.cond_timedwait(&cond, &mutex, &deadline);
+    js_pal.mutex_unlock(&mutex);
+    js_pal.cond_destroy(&cond);
+    js_pal.mutex_destroy(&mutex);
+}
+
 static JSValue js_agent_sleep(JSContext *ctx, JSValue this_val,
                               int argc, JSValue *argv)
 {
     uint32_t duration;
     if (JS_ToUint32(ctx, &duration, argv[0]))
         return JS_EXCEPTION;
-    usleep(duration * 1000);
+    pal_sleep_ms(duration);
     return JS_UNDEFINED;
 }
 
 static int64_t get_clock_ms(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+    JSPalTime t;
+    js_pal.get_time_monotonic(&t);
+    return t.sec * 1000 + (t.usec / 1000);
 }
 
 static JSValue js_agent_monotonicNow(JSContext *ctx, JSValue this_val,
@@ -811,14 +830,14 @@ static JSValue js_agent_getReport(JSContext *ctx, JSValue this_val,
     AgentReport *rep;
     JSValue ret;
 
-    pthread_mutex_lock(&tls->report_mutex);
+    js_pal.mutex_lock(&tls->report_mutex);
     if (list_empty(&tls->report_list)) {
         rep = NULL;
     } else {
         rep = list_entry(tls->report_list.next, AgentReport, link);
         list_del(&rep->link);
     }
-    pthread_mutex_unlock(&tls->report_mutex);
+    js_pal.mutex_unlock(&tls->report_mutex);
     if (rep) {
         ret = JS_NewString(ctx, rep->str);
         free(rep->str);
@@ -843,9 +862,9 @@ static JSValue js_agent_report(JSContext *ctx, JSValue this_val,
     rep->str = strdup(str);
     JS_FreeCString(ctx, str);
 
-    pthread_mutex_lock(&tls->report_mutex);
+    js_pal.mutex_lock(&tls->report_mutex);
     list_add_tail(&rep->link, &tls->report_list);
-    pthread_mutex_unlock(&tls->report_mutex);
+    js_pal.mutex_unlock(&tls->report_mutex);
     return JS_UNDEFINED;
 }
 
@@ -1369,9 +1388,9 @@ static __attribute__((__format__(__printf__, 1, 2))) void print_error(const char
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     if (update_errors) {
-        pthread_mutex_lock(&error_list_mutex);
+        js_pal.mutex_lock(&error_list_mutex);
         namelist_add(&error_list, NULL, buf);
-        pthread_mutex_unlock(&error_list_mutex);
+        js_pal.mutex_unlock(&error_list_mutex);
     } else {
         fputs(buf, stdout);
     }
@@ -1519,7 +1538,7 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
                     }
                     printf("%s:%d: %sOK, now has error %s\n",
                            filename, error_line, strict_mode, msg);
-                    fixed_errors++;
+                    atomic_inc(&fixed_errors);
                 }
             } else {
                 if (!s) {   // not yet reported
@@ -1530,7 +1549,7 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
                         print_error("%s:%d: %sexpected error\n",
                                     filename, error_line, strict_mode);
                     }
-                    new_errors++;
+                    atomic_inc(&new_errors);
                 }
             }
         } else {            // should not have error
@@ -1549,15 +1568,15 @@ static int eval_buf(JSContext *ctx, const char *buf, size_t buf_len,
 
                     if (s && (!str_equal(s, msg) || error_line != s_line)) {
                         printf("%s:%d: %sprevious error: %s\n", filename, s_line, strict_mode, s);
-                        changed_errors++;
+                        atomic_inc(&changed_errors);
                     } else {
-                        new_errors++;
+                        atomic_inc(&new_errors);
                     }
                 }
             } else {
                 if (s) {
                     printf("%s:%d: %sOK, fixed error: %s\n", filename, s_line, strict_mode, s);
-                    fixed_errors++;
+                    atomic_inc(&fixed_errors);
                 }
             }
         }
@@ -1684,7 +1703,7 @@ void update_stats(JSRuntime *rt, const char *filename) {
     JSMemoryUsage stats;
     JS_ComputeMemoryUsage(rt, &stats);
 
-    pthread_mutex_lock(&stats_mutex);
+    js_pal.mutex_lock(&stats_mutex);
     if (stats_count++ == 0) {
         stats_avg = stats_all = stats_min = stats_max = stats;
         stats_min_filename = strdup(filename);
@@ -1727,7 +1746,7 @@ void update_stats(JSRuntime *rt, const char *filename) {
         update(fast_array_elements);
     }
 #undef update
-    pthread_mutex_unlock(&stats_mutex);
+    js_pal.mutex_unlock(&stats_mutex);
 }
 
 int run_test_buf(ThreadLocalStorage *tls,
@@ -2107,31 +2126,31 @@ int run_test262_harness_test(ThreadLocalStorage *tls,
     return ret_code;
 }
 
-static int pthread_cond_timedwait2(pthread_cond_t *cond, pthread_mutex_t *mutex, int timeout)
+static int pal_cond_timedwait_ms(JSPalCond *cond, JSPalMutex *mutex, int timeout)
 {
-    struct timespec ts;
+    JSPalTime deadline;
 
-    clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec += timeout / 1000;
-    ts.tv_nsec += (timeout % 1000) * 1000000;
-    if (ts.tv_nsec >= 1000000000) {
-        ts.tv_nsec -= 1000000000;
-        ts.tv_sec++;
+    js_pal.get_time(&deadline);
+    deadline.sec += timeout / 1000;
+    deadline.usec += (timeout % 1000) * 1000;
+    if (deadline.usec >= 1000000) {
+        deadline.usec -= 1000000;
+        deadline.sec++;
     }
-    return pthread_cond_timedwait(cond, mutex, &ts);
+    return js_pal.cond_timedwait(cond, mutex, &deadline);
 }
 
 void *show_progress(void *opaque)
 {
     int test_skipped1, test_failed1, test_count1;
 
-    pthread_mutex_lock(&progress_mutex);
+    js_pal.mutex_lock(&progress_mutex);
     for(;;) {
-        pthread_cond_timedwait2(&progress_cond, &progress_mutex, 50);
+        pal_cond_timedwait_ms(&progress_cond, &progress_mutex, 50);
 
-        test_failed1 = atomic_load(&test_failed);
-        test_count1 = atomic_load(&test_count);
-        test_skipped1 = atomic_load(&test_skipped);
+        test_failed1 = pal_atomic32_load(&test_failed);
+        test_count1 = pal_atomic32_load(&test_count);
+        test_skipped1 = pal_atomic32_load(&test_skipped);
 
         if (compact) {
             static int last_test_skipped;
@@ -2160,7 +2179,7 @@ void *show_progress(void *opaque)
         if (progress_exit_request)
             break;
     }
-    pthread_mutex_unlock(&progress_mutex);
+    js_pal.mutex_unlock(&progress_mutex);
     return NULL;
 }
 
@@ -2178,7 +2197,7 @@ int include_exclude_or_skip(int i) // naming is hard...
 }
 
 typedef struct {
-    pthread_t tid;
+    JSPalThread tid;
     int thread_index;
 } RunTestDirThread;
 
@@ -2262,8 +2281,8 @@ int main(int argc, char **argv)
     clock_t clocks;
     
     init_thread_local_storage(tls);
-    pthread_mutex_init(&stats_mutex, NULL);
-    pthread_mutex_init(&error_list_mutex, NULL);
+    js_pal.mutex_init(&stats_mutex);
+    js_pal.mutex_init(&error_list_mutex);
 
 #if !defined(_WIN32)
     compact = !isatty(STDERR_FILENO);
@@ -2426,34 +2445,30 @@ int main(int argc, char **argv)
             }
         }
 
-        pthread_cond_init(&progress_cond, NULL);
-        pthread_mutex_init(&progress_mutex, NULL);
-        pthread_create(&progress_thread, NULL, show_progress, NULL);
+        js_pal.cond_init(&progress_cond);
+        js_pal.mutex_init(&progress_mutex);
+        js_pal.thread_create(&progress_thread, show_progress, NULL, 0);
 
         threads = malloc(sizeof(threads[0]) * nthreads);
         for (i = 0; i < nthreads; i++) {
             RunTestDirThread *th = &threads[i];
-            pthread_attr_t attr;
 
             th->thread_index = i;
-            
-            pthread_attr_init(&attr);
-            pthread_attr_setstacksize(&attr, 2 << 20); // 2 MB, glibc default
-            pthread_create(&th->tid, &attr, run_test_dir_list, th);
-            pthread_attr_destroy(&attr);
+
+            js_pal.thread_create(&th->tid, run_test_dir_list, th, 2 << 20); // 2 MB, glibc default
         }
         for (i = 0; i < nthreads; i++)
-            pthread_join(threads[i].tid, NULL);
+            js_pal.thread_join(&threads[i].tid);
         free(threads);
 
-        pthread_mutex_lock(&progress_mutex);
+        js_pal.mutex_lock(&progress_mutex);
         progress_exit_request = TRUE;
-        pthread_cond_signal(&progress_cond);
-        pthread_mutex_unlock(&progress_mutex);
-        pthread_join(progress_thread, NULL);
+        js_pal.cond_signal(&progress_cond);
+        js_pal.mutex_unlock(&progress_mutex);
+        js_pal.thread_join(&progress_thread);
 
-        pthread_mutex_destroy(&progress_mutex);
-        pthread_cond_destroy(&progress_cond);
+        js_pal.mutex_destroy(&progress_mutex);
+        js_pal.cond_destroy(&progress_cond);
 
         if (outfile && outfile != stdout) {
             fclose(outfile);
