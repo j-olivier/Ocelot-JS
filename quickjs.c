@@ -43,6 +43,9 @@
    reaching for this global directly. Only used below as JS_NewRuntimePal's
    default-PAL fallback when a JSRuntime is created without a custom one. */
 extern JSPalFunctions js_pal;
+// PAL redirections
+#define fprintf(pal, ...) pal->print_f(pal->opaque, __VA_ARGS__)
+#define printf(...) rt->pal.print_f(rt->pal.opaque, __VA_ARGS__)
 
 /* the only OS allocator calls in this file live in js_def_malloc & co
    below, which go through pal->memory_malloc/free/realloc instead --
@@ -50,9 +53,6 @@ extern JSPalFunctions js_pal;
 #define malloc(s) malloc_is_forbidden(s)
 #define free(p) free_is_forbidden(p)
 #define realloc(p,s) realloc_is_forbidden(p,s)
-
-#define fprintf(pal, ...) pal->print_f(pal->opaque, __VA_ARGS__)
-#define printf(...) rt->pal.print_f(rt->pal.opaque, __VA_ARGS__)
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
