@@ -49,6 +49,12 @@
 #define realloc(p,s) realloc_is_forbidden(p,s)
 
 #define printf(...) rt->pal.printf(rt->pal.opaque, __VA_ARGS__)
+/* JS_DumpMemoryUsage() is the only caller; its "fp" parameter is kept for
+   API compatibility but ignored -- output always goes through rt->pal.
+   (forwards to the printf macro above rather than repeating its body --
+   textually duplicating "pal.printf(" here would be rescanned as a call
+   to the *other* macro and double-expand) */
+#define fprintf(fp, ...) printf(__VA_ARGS__)
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
@@ -2983,18 +2989,16 @@ static uint32_t hash_string_rope(JSValueConst val, uint32_t h)
     }
 }
 
-static __maybe_unused void JS_DumpChar(FILE *fo, int c, int sep)
+static __maybe_unused void JS_DumpChar(JSRuntime* rt, int c, int sep)
 {
     if (c == sep || c == '\\') {
-        fputc('\\', fo);
-        fputc(c, fo);
+        printf("\\%c", c);
     } else if (c >= ' ' && c <= 126) {
-        fputc(c, fo);
+        printf("%c", c);
     } else if (c == '\n') {
-        fputc('\\', fo);
-        fputc('n', fo);
+        printf("\\n");
     } else {
-        fprintf(fo, "\\u%04x", c);
+        printf("\\u%04x", c);
     }
 }
 
@@ -3010,7 +3014,7 @@ static __maybe_unused void JS_DumpString(JSRuntime *rt, const JSString *p)
     sep = (js_rc((void *)p)->ref_count == 1) ? '\"' : '\'';
     putchar(sep);
     for(i = 0; i < p->len; i++) {
-        JS_DumpChar(stdout, string_get(p, i), sep);
+        JS_DumpChar(rt, string_get(p, i), sep);
     }
     putchar(sep);
 }
