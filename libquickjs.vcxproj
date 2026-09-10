@@ -47,6 +47,19 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Lib>
+      <AdditionalDependencies>$(VsInstallRoot)\VC\Tools\Llvm\x64\lib\clang\$(LLVMIncludeVersion)\lib\windows\clang_rt.builtins-x86_64.lib</AdditionalDependencies>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Lib>
+      <AdditionalDependencies>$(VsInstallRoot)\VC\Tools\Llvm\x64\lib\clang\$(LLVMIncludeVersion)\lib\windows\clang_rt.builtins-x86_64.lib</AdditionalDependencies>
+    </Lib>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="quickjs.c" />
     <ClCompile Include="quickjs-pal.c" />

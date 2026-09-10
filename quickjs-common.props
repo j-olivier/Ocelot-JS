@@ -14,7 +14,7 @@
        Label="Configuration", before importing Microsoft.Cpp.props. -->
   <PropertyGroup>
     <!-- Mirrors the Makefile's `-DCONFIG_VERSION=\"$(shell cat VERSION)\"`. -->
-    <ConfigVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</ConfigVersion>
+    <ConfigVersion>"1.0.0"</ConfigVersion>
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
   </PropertyGroup>
@@ -34,7 +34,7 @@
            gcc/clang-only attribute spelling, neither of which GCC/clang-POSIX
            warn about. -->
       <AdditionalOptions>/clang:-std=gnu11 -Wno-sign-compare -Wno-unused-parameter -Wno-missing-field-initializers -Wno-microsoft-enum-forward-reference -Wno-ignored-attributes %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;CONFIG_VERSION=\"$(ConfigVersion)\";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;CONFIG_VERSION="1.0.0";%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
