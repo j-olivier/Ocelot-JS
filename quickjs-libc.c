@@ -1712,7 +1712,7 @@ static int js_std_init(JSContext *ctx, JSModuleDef *m)
 
     /* FILE class */
     /* the class ID is created once */
-    JS_NewClassID(&js_std_file_class_id);
+    JS_NewClassID(JS_GetRuntime(ctx), &js_std_file_class_id);
     /* the class is created once per runtime */
     JS_NewClass(JS_GetRuntime(ctx), js_std_file_class_id, &js_std_file_class);
     proto = JS_NewObject(ctx);
@@ -3925,7 +3925,7 @@ static int js_os_init(JSContext *ctx, JSModuleDef *m)
         JSThreadState *ts = JS_GetRuntimeOpaque(rt);
         JSValue proto, obj;
         /* Worker class */
-        JS_NewClassID(&js_worker_class_id);
+        JS_NewClassID(rt, &js_worker_class_id);
         JS_NewClass(JS_GetRuntime(ctx), js_worker_class_id, &js_worker_class);
         proto = JS_NewObject(ctx);
         JS_SetPropertyFunctionList(ctx, proto, js_worker_proto_funcs, countof(js_worker_proto_funcs));

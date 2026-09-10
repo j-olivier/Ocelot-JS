@@ -125,7 +125,7 @@ static int js_point_init(JSContext *ctx, JSModuleDef *m)
     JSValue point_proto, point_class;
 
     /* create the Point class */
-    JS_NewClassID(&js_point_class_id);
+    JS_NewClassID(JS_GetRuntime(ctx), &js_point_class_id);
     JS_NewClass(JS_GetRuntime(ctx), js_point_class_id, &js_point_class);
 
     point_proto = JS_NewObject(ctx);
