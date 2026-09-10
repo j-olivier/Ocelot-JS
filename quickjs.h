@@ -45,6 +45,16 @@ extern "C" {
 #define __js_printf_like(a, b)
 #endif
 
+/* QJS_MSVC: 1 when targeting the native MSVC ABI/CRT (clang-cl or cl.exe against the
+   Windows SDK/ucrt) -- 0 for MinGW and every Unix compiler, even though MinGW also
+   defines _WIN32. This distinguishes "needs a native Win32 backend (no pthreads, no
+   POSIX headers)" from plain "is Windows" for the JSPal/libc-PAL Win32 backends. */
+#if defined(_MSC_VER)
+#define QJS_MSVC 1
+#else
+#define QJS_MSVC 0
+#endif
+
 #define JS_BOOL int
 
 typedef struct JSRuntime JSRuntime;
@@ -442,6 +452,9 @@ struct JSPalFunctions {
     int (*thread_create)(JSPal *opaque, JSPalThread *thread, void *(*start)(void *arg), void *arg,
                           size_t stack_size);
     int (*thread_join)(JSPal *opaque, JSPalThread *thread);
+    /* releases the implementation's resources for a thread that will
+       never be joined (the pthread_detach()/CloseHandle() analogue) */
+    int (*thread_detach)(JSPal *opaque, JSPalThread *thread);
 };
 
 JSRuntime *JS_NewRuntime(void);

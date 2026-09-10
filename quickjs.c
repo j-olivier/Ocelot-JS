@@ -29,6 +29,9 @@
 #include <string.h>
 #include <assert.h>
 #include <math.h>
+#if defined(_MSC_VER)
+#include <malloc.h> /* alloca() */
+#endif
 
 #include "cutils.h"
 #include "list.h"

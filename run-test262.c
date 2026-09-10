@@ -29,13 +29,24 @@
 #include <string.h>
 #include <assert.h>
 #include <ctype.h>
+#if !defined(_MSC_VER)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <time.h>
+#if !defined(_MSC_VER)
 #include <dirent.h>
 #include <ftw.h>
+#endif
 #ifdef _WIN32
 #include <windows.h>
+#if defined(_MSC_VER)
+/* native MSVC CRT/ucrt: provide the POSIX names used below (dirent/ftw
+   emulation, getpid, etc -- unistd.h/dirent.h/ftw.h don't exist here;
+   MinGW's CRT already provides them natively, so this is _MSC_VER-only,
+   not _WIN32) */
+#include "quickjs-libc-win32-compat.h"
+#endif
 #endif
 
 #include "cutils.h"

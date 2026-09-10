@@ -28,19 +28,33 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_MSC_VER)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
+#if !defined(_MSC_VER)
 #include <sys/time.h>
+#endif
 #include <time.h>
 #include <signal.h>
 #include <limits.h>
 #include <sys/stat.h>
+#if !defined(_MSC_VER)
 #include <dirent.h>
+#endif
 #if defined(_WIN32)
 #include <windows.h>
 #include <conio.h>
+#if !defined(_MSC_VER)
 #include <utime.h>
+#endif
+#if defined(_MSC_VER)
+/* native MSVC CRT/ucrt: provide the POSIX names the branches above and
+   below still use (unistd.h/dirent.h/etc. don't exist here; MinGW's CRT
+   already provides them natively, so this is _MSC_VER-only, not _WIN32) */
+#include "quickjs-libc-win32-compat.h"
+#endif
 #else
 #include <dlfcn.h>
 #include <termios.h>
@@ -65,17 +79,15 @@ typedef sig_t sighandler_t;
 
 #endif
 
-/* enable the os.Worker API. It relies on POSIX threads */
+/* enable the os.Worker API. It relies on JSPal (quickjs-pal.h) for
+   thread/mutex primitives. */
 #define USE_WORKER
-
-#ifdef USE_WORKER
-#include <pthread.h>
-#include <stdatomic.h>
-#endif
 
 #include "cutils.h"
 #include "list.h"
 #include "quickjs-libc.h"
+#include "quickjs-libc-pal.h"
+#include "quickjs-pal.h"
 
 #if !defined(PATH_MAX)
 #define PATH_MAX 4096
@@ -126,7 +138,7 @@ typedef struct JSWaker {
 typedef struct {
     int ref_count;
 #ifdef USE_WORKER
-    pthread_mutex_t mutex;
+    JSPalMutex mutex;
 #endif
     struct list_head msg_queue; /* list of JSWorkerMessage.link */
     JSWaker waker;
@@ -2128,36 +2140,19 @@ static JSValue js_os_signal(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
-#if defined(__linux__) || defined(__APPLE__)
 static int64_t get_time_ms(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+    JSPalTime t;
+    js_pal.get_time_monotonic(js_pal.opaque, &t);
+    return (int64_t)t.sec * 1000 + t.usec / 1000;
 }
 
 static int64_t get_time_ns(void)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+    JSPalTime t;
+    js_pal.get_time_monotonic(js_pal.opaque, &t);
+    return (int64_t)t.sec * 1000000000 + t.usec * 1000;
 }
-#else
-/* more portable, but does not work if the date is updated */
-static int64_t get_time_ms(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
-}
-
-static int64_t get_time_ns(void)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)tv.tv_sec * 1000000000 + (tv.tv_usec * 1000);
-}
-#endif
 
 static JSValue js_os_now(JSContext *ctx, JSValue this_val,
                          int argc, JSValue *argv)
@@ -2363,7 +2358,7 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
     JSWorkerMessage *msg;
     JSValue obj, data_obj, func, retval;
 
-    pthread_mutex_lock(&ps->mutex);
+    js_pal.mutex_lock(js_pal.opaque, &ps->mutex);
     if (!list_empty(&ps->msg_queue)) {
         el = ps->msg_queue.next;
         msg = list_entry(el, JSWorkerMessage, link);
@@ -2374,7 +2369,7 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
         if (list_empty(&ps->msg_queue))
             js_waker_clear(&ps->waker);
 
-        pthread_mutex_unlock(&ps->mutex);
+        js_pal.mutex_unlock(js_pal.opaque, &ps->mutex);
 
         data_obj = JS_ReadObject(ctx, msg->data, msg->data_len,
                                  JS_READ_OBJ_SAB | JS_READ_OBJ_REFERENCE);
@@ -2404,7 +2399,7 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
         }
         ret = 1;
     } else {
-        pthread_mutex_unlock(&ps->mutex);
+        js_pal.mutex_unlock(js_pal.opaque, &ps->mutex);
         ret = 0;
     }
     return ret;
@@ -3031,6 +3026,7 @@ static JSValue js_os_readlink(JSContext *ctx, JSValueConst this_val,
     JS_FreeCString(ctx, path);
     return make_string_error(ctx, buf, err);
 }
+#endif /* !_WIN32 */
 
 static char **build_envp(JSContext *ctx, JSValueConst obj)
 {
@@ -3087,62 +3083,6 @@ static char **build_envp(JSContext *ctx, JSValueConst obj)
         envp = NULL;
     }
     goto done;
-}
-
-/* execvpe is not available on non GNU systems */
-static int my_execvpe(const char *filename, char **argv, char **envp)
-{
-    char *path, *p, *p_next, *p1;
-    char buf[PATH_MAX];
-    size_t filename_len, path_len;
-    BOOL eacces_error;
-
-    filename_len = strlen(filename);
-    if (filename_len == 0) {
-        errno = ENOENT;
-        return -1;
-    }
-    if (strchr(filename, '/'))
-        return execve(filename, argv, envp);
-
-    path = getenv("PATH");
-    if (!path)
-        path = (char *)"/bin:/usr/bin";
-    eacces_error = FALSE;
-    p = path;
-    for(p = path; p != NULL; p = p_next) {
-        p1 = strchr(p, ':');
-        if (!p1) {
-            p_next = NULL;
-            path_len = strlen(p);
-        } else {
-            p_next = p1 + 1;
-            path_len = p1 - p;
-        }
-        /* path too long */
-        if ((path_len + 1 + filename_len + 1) > PATH_MAX)
-            continue;
-        memcpy(buf, p, path_len);
-        buf[path_len] = '/';
-        memcpy(buf + path_len + 1, filename, filename_len);
-        buf[path_len + 1 + filename_len] = '\0';
-
-        execve(buf, argv, envp);
-
-        switch(errno) {
-        case EACCES:
-            eacces_error = TRUE;
-            break;
-        case ENOENT:
-        case ENOTDIR:
-            break;
-        default:
-            return -1;
-        }
-    }
-    if (eacces_error)
-        errno = EACCES;
-    return -1;
 }
 
 /* exec(args[, options]) -> exitcode */
@@ -3264,74 +3204,22 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
         }
     }
 
-    pid = fork();
-    if (pid < 0) {
-        JS_ThrowTypeError(ctx, "fork error");
+    ret = js_libc_pal.process_spawn(js_libc_pal.opaque, file, (char *const *)exec_argv,
+                                     envp, cwd, std_fds, use_path, uid, gid, &pid);
+    if (ret < 0) {
+        JS_ThrowTypeError(ctx, "exec error");
         goto exception;
-    }
-    if (pid == 0) {
-        /* child */
-
-        /* remap the stdin/stdout/stderr handles if necessary */
-        for(i = 0; i < 3; i++) {
-            if (std_fds[i] != i) {
-                if (dup2(std_fds[i], i) < 0)
-                    _exit(127);
-            }
-        }
-#if defined(HAVE_CLOSEFROM)
-        /* closefrom() is available on many recent unix systems:
-           Linux with glibc 2.34+, Solaris 9+, FreeBSD 7.3+,
-           NetBSD 3.0+, OpenBSD 3.5+.
-           Linux with the musl libc and macOS don't have it.
-         */
-
-        closefrom(3);
-#else
-        {
-            /* Close the file handles manually, limit to 1024 to avoid
-               costly loop on linux Alpine where sysconf(_SC_OPEN_MAX)
-               returns a huge value 1048576.
-               Patch inspired by nicolas-duteil-nova. See also:
-               https://stackoverflow.com/questions/73229353/
-               https://stackoverflow.com/questions/899038/#918469
-             */
-            int fd_max = min_int(sysconf(_SC_OPEN_MAX), 1024);
-            for(i = 3; i < fd_max; i++)
-                close(i);
-        }
-#endif
-        if (cwd) {
-            if (chdir(cwd) < 0)
-                _exit(127);
-        }
-        if (gid != -1) {
-            if (setgid(gid) < 0)
-                _exit(127);
-        }
-        if (uid != -1) {
-            if (setuid(uid) < 0)
-                _exit(127);
-        }
-
-        if (!file)
-            file = exec_argv[0];
-        if (use_path)
-            ret = my_execvpe(file, (char **)exec_argv, envp);
-        else
-            ret = execve(file, (char **)exec_argv, envp);
-        _exit(127);
     }
     /* parent */
     if (block_flag) {
         for(;;) {
-            ret = waitpid(pid, &status, 0);
+            ret = js_libc_pal.process_wait(js_libc_pal.opaque, pid, 0, &status);
             if (ret == pid) {
-                if (WIFEXITED(status)) {
-                    ret = WEXITSTATUS(status);
+                if (JS_LIBC_WIFEXITED(status)) {
+                    ret = JS_LIBC_WEXITSTATUS(status);
                     break;
-                } else if (WIFSIGNALED(status)) {
-                    ret = -WTERMSIG(status);
+                } else if (JS_LIBC_WIFSIGNALED(status)) {
+                    ret = -JS_LIBC_WTERMSIG(status);
                     break;
                 }
             }
@@ -3361,12 +3249,14 @@ static JSValue js_os_exec(JSContext *ctx, JSValueConst this_val,
     goto done;
 }
 
+#if !defined(_WIN32)
 /* getpid() -> pid */
 static JSValue js_os_getpid(JSContext *ctx, JSValueConst this_val,
                             int argc, JSValueConst *argv)
 {
     return JS_NewInt32(ctx, getpid());
 }
+#endif /* !_WIN32 */
 
 /* waitpid(pid, block) -> [pid, status] */
 static JSValue js_os_waitpid(JSContext *ctx, JSValueConst this_val,
@@ -3380,9 +3270,8 @@ static JSValue js_os_waitpid(JSContext *ctx, JSValueConst this_val,
     if (JS_ToInt32(ctx, &options, argv[1]))
         return JS_EXCEPTION;
 
-    ret = waitpid(pid, &status, options);
+    ret = js_libc_pal.process_wait(js_libc_pal.opaque, pid, options, &status);
     if (ret < 0) {
-        ret = -errno;
         status = 0;
     }
 
@@ -3396,6 +3285,7 @@ static JSValue js_os_waitpid(JSContext *ctx, JSValueConst this_val,
     return obj;
 }
 
+#if !defined(_WIN32)
 /* pipe() -> [read_fd, write_fd] or null if error */
 static JSValue js_os_pipe(JSContext *ctx, JSValueConst this_val,
                           int argc, JSValueConst *argv)
@@ -3415,6 +3305,7 @@ static JSValue js_os_pipe(JSContext *ctx, JSValueConst this_val,
                                  JS_PROP_C_W_E);
     return obj;
 }
+#endif /* !_WIN32 */
 
 /* kill(pid, sig) */
 static JSValue js_os_kill(JSContext *ctx, JSValueConst this_val,
@@ -3426,10 +3317,11 @@ static JSValue js_os_kill(JSContext *ctx, JSValueConst this_val,
         return JS_EXCEPTION;
     if (JS_ToInt32(ctx, &sig, argv[1]))
         return JS_EXCEPTION;
-    ret = js_get_errno(kill(pid, sig));
+    ret = js_libc_pal.process_kill(js_libc_pal.opaque, pid, sig);
     return JS_NewInt32(ctx, ret);
 }
 
+#if !defined(_WIN32)
 /* dup(fd) */
 static JSValue js_os_dup(JSContext *ctx, JSValueConst this_val,
                          int argc, JSValueConst *argv)
@@ -3455,7 +3347,6 @@ static JSValue js_os_dup2(JSContext *ctx, JSValueConst this_val,
     ret = js_get_errno(dup2(fd, fd2));
     return JS_NewInt32(ctx, ret);
 }
-
 #endif /* !_WIN32 */
 
 #ifdef USE_WORKER
@@ -3485,7 +3376,7 @@ static JSContext *(*js_worker_new_context_func)(JSRuntime *rt);
 
 static int atomic_add_int(int *ptr, int v)
 {
-    return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v) + v;
+    return pal_atomic32_fetch_add((uint32_t *)ptr, v) + v;
 }
 
 /* shared array buffer allocator */
@@ -3531,7 +3422,7 @@ static JSWorkerMessagePipe *js_new_message_pipe(void)
     }
     ps->ref_count = 1;
     init_list_head(&ps->msg_queue);
-    pthread_mutex_init(&ps->mutex, NULL);
+    js_pal.mutex_init(js_pal.opaque, &ps->mutex);
     return ps;
 }
 
@@ -3569,7 +3460,7 @@ static void js_free_message_pipe(JSWorkerMessagePipe *ps)
             msg = list_entry(el, JSWorkerMessage, link);
             js_free_message(msg);
         }
-        pthread_mutex_destroy(&ps->mutex);
+        js_pal.mutex_destroy(js_pal.opaque, &ps->mutex);
         js_waker_close(&ps->waker);
         free(ps);
     }
@@ -3703,8 +3594,7 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
 {
     JSRuntime *rt = JS_GetRuntime(ctx);
     WorkerFuncArgs *args = NULL;
-    pthread_t tid;
-    pthread_attr_t attr;
+    JSPalThread tid;
     JSValue obj = JS_UNDEFINED;
     int ret;
     const char *filename = NULL, *basename;
@@ -3753,15 +3643,13 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
     if (JS_IsException(obj))
         goto fail;
 
-    pthread_attr_init(&attr);
-    /* no join at the end */
-    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
-    ret = pthread_create(&tid, &attr, worker_func, args);
-    pthread_attr_destroy(&attr);
+    ret = js_pal.thread_create(js_pal.opaque, &tid, worker_func, args, 0);
     if (ret != 0) {
         JS_ThrowTypeError(ctx, "could not create worker");
         goto fail;
     }
+    /* no join at the end */
+    js_pal.thread_detach(js_pal.opaque, &tid);
     JS_FreeCString(ctx, basename);
     JS_FreeCString(ctx, filename);
     return obj;
@@ -3830,12 +3718,12 @@ static JSValue js_worker_postMessage(JSContext *ctx, JSValueConst this_val,
     }
 
     ps = worker->send_pipe;
-    pthread_mutex_lock(&ps->mutex);
+    js_pal.mutex_lock(js_pal.opaque, &ps->mutex);
     /* indicate that data is present */
     if (list_empty(&ps->msg_queue))
         js_waker_signal(&ps->waker);
     list_add_tail(&msg->link, &ps->msg_queue);
-    pthread_mutex_unlock(&ps->mutex);
+    js_pal.mutex_unlock(js_pal.opaque, &ps->mutex);
     return JS_UNDEFINED;
  fail:
     if (msg) {
@@ -3998,12 +3886,18 @@ static const JSCFunctionListEntry js_os_funcs[] = {
     JS_CFUNC_MAGIC_DEF("lstat", 1, js_os_stat, 1 ),
     JS_CFUNC_DEF("symlink", 2, js_os_symlink ),
     JS_CFUNC_DEF("readlink", 1, js_os_readlink ),
+#endif
     JS_CFUNC_DEF("exec", 1, js_os_exec ),
+#if !defined(_WIN32)
     JS_CFUNC_DEF("getpid", 0, js_os_getpid ),
+#endif
     JS_CFUNC_DEF("waitpid", 2, js_os_waitpid ),
-    OS_FLAG(WNOHANG),
+    JS_PROP_INT32_DEF("WNOHANG", JS_LIBC_WNOHANG, JS_PROP_CONFIGURABLE ),
+#if !defined(_WIN32)
     JS_CFUNC_DEF("pipe", 0, js_os_pipe ),
+#endif
     JS_CFUNC_DEF("kill", 2, js_os_kill ),
+#if !defined(_WIN32)
     JS_CFUNC_DEF("dup", 1, js_os_dup ),
     JS_CFUNC_DEF("dup2", 2, js_os_dup2 ),
 #endif
