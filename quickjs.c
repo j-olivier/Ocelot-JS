@@ -618,7 +618,12 @@ typedef enum {
 } JSClosureTypeEnum;
 
 typedef struct JSClosureVar {
-    uint8_t closure_type : 3; //JSClosureTypeEnum
+    /* uint8_t (not JSClosureTypeEnum) so the bit-field is unsigned: the
+       enum's underlying type is implementation-defined and MSVC/clang-cl
+       picks signed int, which truncates JS_CLOSURE_GLOBAL_DECL/GLOBAL/
+       MODULE_DECL/MODULE_IMPORT (values 4-7) to negative numbers in a
+       3-bit field. */
+    uint8_t closure_type : 3; /* JSClosureTypeEnum */
     uint8_t is_lexical : 1; /* lexical variable */
     uint8_t is_const : 1; /* const variable (is_lexical = 1 if is_const = 1 */
     uint8_t var_kind : 4; /* see JSVarKindEnum */

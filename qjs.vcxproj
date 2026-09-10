@@ -54,7 +54,7 @@
          qjsc.exe comes from the ProjectReference below, which also orders this
          project's build after qjsc's. -->
     <CustomBuildStep>
-      <Command>"$(OutDir)qjsc.exe" -s -c -o "$(ProjectDir)repl.c" -m "$(ProjectDir)repl.js"</Command>
+      <Command>cd /d "$(ProjectDir)" &amp;&amp; "$(OutDir)qjsc.exe" -s -c -o repl.c -m repl.js</Command>
       <Message>Generating repl.c from repl.js via qjsc</Message>
       <Outputs>$(ProjectDir)repl.c</Outputs>
       <Inputs>$(ProjectDir)repl.js;$(OutDir)qjsc.exe</Inputs>

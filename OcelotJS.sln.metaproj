@@ -32,7 +32,7 @@
     <VisualStudioVersion>17.0</VisualStudioVersion>
     <_DirectorySolutionPropsFile>Directory.Solution.props</_DirectorySolutionPropsFile>
     <_DirectorySolutionPropsBasePath />
-    <AspNetConfiguration>Release</AspNetConfiguration>
+    <AspNetConfiguration>Debug</AspNetConfiguration>
     <SolutionDir>F:\Git\ocelot-js\</SolutionDir>
     <SolutionExt>.sln</SolutionExt>
     <SolutionFileName>OcelotJS.sln</SolutionFileName>
@@ -41,10 +41,10 @@
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
     <CurrentSolutionConfigurationContents>
       <SolutionConfiguration xmlns="">
-  <ProjectConfiguration Project="{BEC1ABA6-8383-4019-86AC-7E2689D3A56F}" AbsolutePath="F:\Git\ocelot-js\libquickjs.vcxproj" BuildProjectInSolution="True">Release|x64</ProjectConfiguration>
-  <ProjectConfiguration Project="{79BF965D-6FEE-4CD8-829F-6302B97A1482}" AbsolutePath="F:\Git\ocelot-js\qjsc.vcxproj" BuildProjectInSolution="True">Release|x64</ProjectConfiguration>
-  <ProjectConfiguration Project="{F6415D3C-BF00-43B7-824E-1DF3F0D97560}" AbsolutePath="F:\Git\ocelot-js\qjs.vcxproj" BuildProjectInSolution="True">Release|x64</ProjectConfiguration>
-  <ProjectConfiguration Project="{2CE89903-4777-42B7-8420-70B7F1B680A7}" AbsolutePath="F:\Git\ocelot-js\run-test262.vcxproj" BuildProjectInSolution="True">Release|x64</ProjectConfiguration>
+  <ProjectConfiguration Project="{BEC1ABA6-8383-4019-86AC-7E2689D3A56F}" AbsolutePath="F:\Git\ocelot-js\libquickjs.vcxproj" BuildProjectInSolution="True">Debug|x64</ProjectConfiguration>
+  <ProjectConfiguration Project="{79BF965D-6FEE-4CD8-829F-6302B97A1482}" AbsolutePath="F:\Git\ocelot-js\qjsc.vcxproj" BuildProjectInSolution="True">Debug|x64</ProjectConfiguration>
+  <ProjectConfiguration Project="{F6415D3C-BF00-43B7-824E-1DF3F0D97560}" AbsolutePath="F:\Git\ocelot-js\qjs.vcxproj" BuildProjectInSolution="True">Debug|x64</ProjectConfiguration>
+  <ProjectConfiguration Project="{2CE89903-4777-42B7-8420-70B7F1B680A7}" AbsolutePath="F:\Git\ocelot-js\run-test262.vcxproj" BuildProjectInSolution="True">Debug|x64</ProjectConfiguration>
 </SolutionConfiguration>
     </CurrentSolutionConfigurationContents>
     <NuGetRestoreTargets>C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\..\Common7\IDE\CommonExtensions\Microsoft\NuGet\NuGet.targets</NuGetRestoreTargets>
@@ -106,33 +106,33 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="F:\Git\ocelot-js\libquickjs.vcxproj">
-      <AdditionalProperties>Configuration=Release; Platform=x64</AdditionalProperties>
+      <AdditionalProperties>Configuration=Debug; Platform=x64</AdditionalProperties>
       <Platform>x64</Platform>
-      <Configuration>Release</Configuration>
+      <Configuration>Debug</Configuration>
       <ToolsVersion>
       </ToolsVersion>
       <SkipNonexistentProjects>False</SkipNonexistentProjects>
     </ProjectReference>
     <ProjectReference Include="F:\Git\ocelot-js\qjsc.vcxproj">
-      <AdditionalProperties>Configuration=Release; Platform=x64</AdditionalProperties>
+      <AdditionalProperties>Configuration=Debug; Platform=x64</AdditionalProperties>
       <Platform>x64</Platform>
-      <Configuration>Release</Configuration>
+      <Configuration>Debug</Configuration>
       <ToolsVersion>
       </ToolsVersion>
       <SkipNonexistentProjects>False</SkipNonexistentProjects>
     </ProjectReference>
     <ProjectReference Include="F:\Git\ocelot-js\qjs.vcxproj">
-      <AdditionalProperties>Configuration=Release; Platform=x64</AdditionalProperties>
+      <AdditionalProperties>Configuration=Debug; Platform=x64</AdditionalProperties>
       <Platform>x64</Platform>
-      <Configuration>Release</Configuration>
+      <Configuration>Debug</Configuration>
       <ToolsVersion>
       </ToolsVersion>
       <SkipNonexistentProjects>False</SkipNonexistentProjects>
     </ProjectReference>
     <ProjectReference Include="F:\Git\ocelot-js\run-test262.vcxproj">
-      <AdditionalProperties>Configuration=Release; Platform=x64</AdditionalProperties>
+      <AdditionalProperties>Configuration=Debug; Platform=x64</AdditionalProperties>
       <Platform>x64</Platform>
-      <Configuration>Release</Configuration>
+      <Configuration>Debug</Configuration>
       <ToolsVersion>
       </ToolsVersion>
       <SkipNonexistentProjects>False</SkipNonexistentProjects>
@@ -389,67 +389,67 @@
   <Target Name="_GetTargetFrameworkOverrides" Returns="$(_TargetFrameworkOverride)" />
   <Target Name="_IsProjectRestoreSupported" Returns="@(_ValidProjectsForRestore)" />
   <Target Name="libquickjs" Outputs="@(libquickjsBuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="libquickjsBuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="libquickjs:Clean">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="libquickjs:Rebuild" Outputs="@(libquickjsBuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="libquickjsBuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="libquickjs:Publish">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\libquickjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="qjsc" Outputs="@(qjscBuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="qjscBuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="qjsc:Clean">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="qjsc:Rebuild" Outputs="@(qjscBuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="qjscBuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="qjsc:Publish">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjsc.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="qjs" Outputs="@(qjsBuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="qjsBuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="qjs:Clean">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="qjs:Rebuild" Outputs="@(qjsBuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="qjsBuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="qjs:Publish">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\qjs.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="run-test262" Outputs="@(run-test262BuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="run-test262BuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="run-test262:Clean">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Clean" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
   <Target Name="run-test262:Rebuild" Outputs="@(run-test262BuildOutput)">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Rebuild" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)">
       <Output TaskParameter="TargetOutputs" ItemName="run-test262BuildOutput" />
     </MSBuild>
   </Target>
   <Target Name="run-test262:Publish">
-    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Release; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
+    <MSBuild Condition="'%(ProjectReference.Identity)' == 'F:\Git\ocelot-js\run-test262.vcxproj'" ToolsVersion="$(ProjectToolsVersion)" BuildInParallel="True" Projects="@(ProjectReference)" Targets="Publish" Properties="Configuration=Debug; Platform=x64;BuildingSolutionFile=true; CurrentSolutionConfigurationContents=$(CurrentSolutionConfigurationContents); SolutionDir=$(SolutionDir); SolutionExt=$(SolutionExt); SolutionFileName=$(SolutionFileName); SolutionName=$(SolutionName); SolutionPath=$(SolutionPath)" />
   </Target>
 </Project>

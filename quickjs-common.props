@@ -14,7 +14,7 @@
        Label="Configuration", before importing Microsoft.Cpp.props. -->
   <PropertyGroup>
     <!-- Mirrors the Makefile's `-DCONFIG_VERSION=\"$(shell cat VERSION)\"`. -->
-    <ConfigVersion>"1.0.0"</ConfigVersion>
+    <ConfigVersion>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)VERSION').Trim())</ConfigVersion>
     <OutDir>$(SolutionDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
   </PropertyGroup>
@@ -34,11 +34,16 @@
            gcc/clang-only attribute spelling, neither of which GCC/clang-POSIX
            warn about. -->
       <AdditionalOptions>/clang:-std=gnu11 -Wno-sign-compare -Wno-unused-parameter -Wno-missing-field-initializers -Wno-microsoft-enum-forward-reference -Wno-ignored-attributes %(AdditionalOptions)</AdditionalOptions>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;CONFIG_VERSION="1.0.0";%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;CONFIG_VERSION="$(ConfigVersion)";%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <!-- BigInt's 128-bit division (js_bigint_divrem/js_bigint_to_string1) needs __udivti3/
+           __umodti3, which clang-cl emits calls to but doesn't inline; they live in LLVM's
+           compiler-rt builtins lib, not the MSVC CRT, so it must be linked explicitly. -->
+      <AdditionalDependencies>clang_rt.builtins-x86_64.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(LLVMInstallDir)\lib\clang\$(LLVMIncludeVersion)\lib\windows;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
