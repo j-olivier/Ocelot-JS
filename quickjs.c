@@ -14479,8 +14479,8 @@ void JS_PrintValue(JSContext *ctx, JSPrintValueWrite *write_func, void *write_op
 
 static void js_dump_value_write(void *opaque, const char *buf, size_t len)
 {
-    FILE *fo = opaque;
-    fwrite(buf, 1, len, fo);
+    JSRuntime *rt = opaque;
+    printf("%.*s", (int)len, buf);
 }
 
 static __maybe_unused void print_atom(JSContext *ctx, JSAtom atom)
@@ -14490,7 +14490,7 @@ static __maybe_unused void print_atom(JSContext *ctx, JSAtom atom)
     s->rt = ctx->rt;
     s->ctx = ctx;
     s->write_func = js_dump_value_write;
-    s->write_opaque = stdout;
+    s->write_opaque = ctx->rt;
     js_print_atom(s, atom);
 }
 
@@ -14506,14 +14506,14 @@ static __maybe_unused void JS_DumpValue(JSContext *ctx, const char *str, JSValue
 {
     JSRuntime* rt = ctx->rt;
     printf("%s=", str);
-    JS_PrintValue(ctx, js_dump_value_write, stdout, val, NULL);
+    JS_PrintValue(ctx, js_dump_value_write, rt, val, NULL);
     printf("\n");
 }
 
 static __maybe_unused void JS_DumpValueRT(JSRuntime *rt, const char *str, JSValueConst val)
 {
     printf("%s=", str);
-    JS_PrintValueRT(rt, js_dump_value_write, stdout, val, NULL);
+    JS_PrintValueRT(rt, js_dump_value_write, rt, val, NULL);
     printf("\n");
 }
 
@@ -14547,7 +14547,7 @@ static __maybe_unused void JS_DumpObject(JSRuntime *rt, JSObject *p)
     options.max_depth = 1;
     options.show_hidden = TRUE;
     options.raw_dump = TRUE;
-    JS_PrintValueRT(rt, js_dump_value_write, stdout, JS_MKPTR(JS_TAG_OBJECT, p), &options);
+    JS_PrintValueRT(rt, js_dump_value_write, rt, JS_MKPTR(JS_TAG_OBJECT, p), &options);
 
     printf("\n");
 }
@@ -38418,6 +38418,7 @@ typedef struct BCReaderState {
 
 #ifdef DUMP_READ_OBJECT
 static void __attribute__((format(printf, 2, 3))) bc_read_trace(BCReaderState *s, const char *fmt, ...) {
+    JSRuntime *rt = s->ctx->rt;
     va_list ap;
     int i, n, n0;
 
@@ -38599,6 +38600,9 @@ static int bc_get_atom(BCReaderState *s, JSAtom *patom)
 
 static JSString *JS_ReadString(BCReaderState *s)
 {
+#ifdef DUMP_READ_OBJECT
+    JSRuntime *rt = s->ctx->rt;
+#endif
     uint32_t len;
     size_t size;
     BOOL is_wide_char;
@@ -38652,6 +38656,9 @@ static uint32_t bc_get_flags(uint32_t flags, int *pidx, int n)
 static int JS_ReadFunctionBytecode(BCReaderState *s, JSFunctionBytecode *b,
                                    int byte_code_offset, uint32_t bc_len)
 {
+#ifdef DUMP_READ_OBJECT
+    JSRuntime *rt = s->ctx->rt;
+#endif
     uint8_t *bc_buf;
     int pos, len, op;
     JSAtom atom;
@@ -38781,6 +38788,9 @@ static int BC_add_object_ref(BCReaderState *s, JSValueConst obj)
 static JSValue JS_ReadFunctionTag(BCReaderState *s)
 {
     JSContext *ctx = s->ctx;
+#ifdef DUMP_READ_OBJECT
+    JSRuntime *rt = ctx->rt;
+#endif
     JSFunctionBytecode bc, *b;
     JSValue obj = JS_UNDEFINED;
     uint16_t v16;
@@ -38953,7 +38963,7 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
         if (bc_get_leb128_int(s, &b->debug.source_len))
             goto fail;
         if (b->debug.source_len) {
-            bc_read_trace(s, "source: %d bytes\n", b->source_len);
+            bc_read_trace(s, "source: %d bytes\n", b->debug.source_len);
             b->debug.source = js_mallocz(ctx, b->debug.source_len);
             if (!b->debug.source)
                 goto fail;
@@ -38983,6 +38993,9 @@ static JSValue JS_ReadFunctionTag(BCReaderState *s)
 static JSValue JS_ReadModule(BCReaderState *s)
 {
     JSContext *ctx = s->ctx;
+#ifdef DUMP_READ_OBJECT
+    JSRuntime *rt = ctx->rt;
+#endif
     JSValue obj;
     JSModuleDef *m = NULL;
     JSAtom module_name;
@@ -39097,6 +39110,9 @@ static JSValue JS_ReadModule(BCReaderState *s)
 static JSValue JS_ReadObjectTag(BCReaderState *s)
 {
     JSContext *ctx = s->ctx;
+#ifdef DUMP_READ_OBJECT
+    JSRuntime *rt = ctx->rt;
+#endif
     JSValue obj;
     uint32_t prop_count, i;
     JSAtom atom;
