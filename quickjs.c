@@ -38,6 +38,13 @@
 #include "dtoa.h"
 #include "quickjs-pal.h"
 
+/* the engine's own default PAL, defined in quickjs-pal.c. Not declared in
+   quickjs-pal.h -- host code must go through JS_GetRuntimePal() instead of
+   reaching for this global directly. Only used below for JS_NewRuntimePal's
+   default-PAL fallback and the two process-wide mutexes that outlive any
+   single JSRuntime (see js_pal_mutex_lazy_init). */
+extern JSPalFunctions js_pal;
+
 /* the only OS allocator calls in this file live in js_def_malloc & co
    below, which go through pal->memory_malloc/free/realloc instead --
    poison the raw names so no other call site can sneak one in. */
@@ -2140,6 +2147,11 @@ void *JS_GetRuntimeOpaque(JSRuntime *rt)
 void JS_SetRuntimeOpaque(JSRuntime *rt, void *opaque)
 {
     rt->user_opaque = opaque;
+}
+
+const JSPalFunctions *JS_GetRuntimePal(JSRuntime *rt)
+{
+    return &rt->pal;
 }
 
 /* default memory allocation functions with memory limitation.
@@ -7246,7 +7258,7 @@ void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s)
         s->js_func_size + s->js_func_code_size + s->js_func_pc2line_size;
 }
 
-void JS_DumpMemoryUsage(JSPalFunctions *fp, const JSMemoryUsage *s, JSRuntime *rt)
+void JS_DumpMemoryUsage(const JSPalFunctions *fp, const JSMemoryUsage *s, JSRuntime *rt)
 {
     fprintf(fp, "QuickJS memory usage -- " CONFIG_VERSION " version, %d-bit, malloc limit: %"PRId64"\n\n",
             (int)sizeof(void *) * 8, s->malloc_limit);

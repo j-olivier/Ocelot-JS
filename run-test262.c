@@ -100,6 +100,12 @@ namelist_t exclude_dir_list;
 namelist_t error_list;
 JSPalMutex error_list_mutex;
 
+/* long-lived runtime that exists only to hand out its inherited PAL to this
+   host program -- run-test262.c has no owning JSRuntime of its own, since it
+   is a test harness, not a script host. */
+JSRuntime *pal_rt;
+const JSPalFunctions *pal;
+
 int nthreads;
 JSPalThread progress_thread;
 BOOL progress_exit_request;
@@ -236,11 +242,11 @@ static int cpu_count(void)
 static void init_thread_local_storage(ThreadLocalStorage *tls)
 {
     memset(tls, 0, sizeof(*tls));
-    js_pal.mutex_init(js_pal.opaque, &tls->agent_mutex);
-    js_pal.cond_init(js_pal.opaque, &tls->agent_cond);
+    pal->mutex_init(pal->opaque, &tls->agent_mutex);
+    pal->cond_init(pal->opaque, &tls->agent_cond);
     init_list_head(&tls->agent_list);
 
-    js_pal.mutex_init(js_pal.opaque, &tls->report_mutex);
+    pal->mutex_init(pal->opaque, &tls->report_mutex);
     init_list_head(&tls->report_list);
 }
 
@@ -635,15 +641,15 @@ static void *agent_start(void *arg)
             } else {
                 JSValue args[2];
 
-                js_pal.mutex_lock(js_pal.opaque, &tls->agent_mutex);
+                pal->mutex_lock(pal->opaque, &tls->agent_mutex);
                 while (!agent->broadcast_pending) {
-                    js_pal.cond_wait(js_pal.opaque, &tls->agent_cond, &tls->agent_mutex);
+                    pal->cond_wait(pal->opaque, &tls->agent_cond, &tls->agent_mutex);
                 }
 
                 agent->broadcast_pending = FALSE;
-                js_pal.cond_signal(js_pal.opaque, &tls->agent_cond);
+                pal->cond_signal(pal->opaque, &tls->agent_cond);
 
-                js_pal.mutex_unlock(js_pal.opaque, &tls->agent_mutex);
+                pal->mutex_unlock(pal->opaque, &tls->agent_mutex);
 
                 args[0] = JS_NewArrayBuffer(ctx, agent->broadcast_sab_buf,
                                             agent->broadcast_sab_size,
@@ -691,7 +697,7 @@ static JSValue js_agent_start(JSContext *ctx, JSValue this_val,
     list_add_tail(&agent->link, &tls->agent_list);
     // musl libc gives threads 80 kb stacks, much smaller than
     // JS_DEFAULT_STACK_SIZE (256 kb)
-    js_pal.thread_create(js_pal.opaque, &agent->tid, agent_start, agent, 2 << 20); // 2 MB, glibc default
+    pal->thread_create(pal->opaque, &agent->tid, agent_start, agent, 2 << 20); // 2 MB, glibc default
     return JS_UNDEFINED;
 }
 
@@ -703,7 +709,7 @@ static void js_agent_free(JSContext *ctx)
 
     list_for_each_safe(el, el1, &tls->agent_list) {
         agent = list_entry(el, Test262Agent, link);
-        js_pal.thread_join(js_pal.opaque, &agent->tid);
+        pal->thread_join(pal->opaque, &agent->tid);
         JS_FreeValue(ctx, agent->broadcast_sab);
         list_del(&agent->link);
         free(agent);
@@ -754,7 +760,7 @@ static JSValue js_agent_broadcast(JSContext *ctx, JSValue this_val,
 
     /* broadcast the values and wait until all agents have started
        calling their callbacks */
-    js_pal.mutex_lock(js_pal.opaque, &tls->agent_mutex);
+    pal->mutex_lock(pal->opaque, &tls->agent_mutex);
     list_for_each(el, &tls->agent_list) {
         agent = list_entry(el, Test262Agent, link);
         agent->broadcast_pending = TRUE;
@@ -765,12 +771,12 @@ static JSValue js_agent_broadcast(JSContext *ctx, JSValue this_val,
         agent->broadcast_sab_size = buf_size;
         agent->broadcast_val = val;
     }
-    js_pal.cond_broadcast(js_pal.opaque, &tls->agent_cond);
+    pal->cond_broadcast(pal->opaque, &tls->agent_cond);
 
     while (is_broadcast_pending(tls)) {
-        js_pal.cond_wait(js_pal.opaque, &tls->agent_cond, &tls->agent_mutex);
+        pal->cond_wait(pal->opaque, &tls->agent_cond, &tls->agent_mutex);
     }
-    js_pal.mutex_unlock(js_pal.opaque, &tls->agent_mutex);
+    pal->mutex_unlock(pal->opaque, &tls->agent_mutex);
     return JS_UNDEFINED;
 }
 
@@ -795,20 +801,20 @@ static void pal_sleep_ms(int64_t duration_ms)
     JSPalCond cond;
     JSPalTime deadline;
 
-    js_pal.mutex_init(js_pal.opaque, &mutex);
-    js_pal.cond_init(js_pal.opaque, &cond);
-    js_pal.mutex_lock(js_pal.opaque, &mutex);
-    js_pal.get_time(js_pal.opaque, &deadline);
+    pal->mutex_init(pal->opaque, &mutex);
+    pal->cond_init(pal->opaque, &cond);
+    pal->mutex_lock(pal->opaque, &mutex);
+    pal->get_time(pal->opaque, &deadline);
     deadline.sec += duration_ms / 1000;
     deadline.usec += (duration_ms % 1000) * 1000;
     if (deadline.usec >= 1000000) {
         deadline.usec -= 1000000;
         deadline.sec++;
     }
-    js_pal.cond_timedwait(js_pal.opaque, &cond, &mutex, &deadline);
-    js_pal.mutex_unlock(js_pal.opaque, &mutex);
-    js_pal.cond_destroy(js_pal.opaque, &cond);
-    js_pal.mutex_destroy(js_pal.opaque, &mutex);
+    pal->cond_timedwait(pal->opaque, &cond, &mutex, &deadline);
+    pal->mutex_unlock(pal->opaque, &mutex);
+    pal->cond_destroy(pal->opaque, &cond);
+    pal->mutex_destroy(pal->opaque, &mutex);
 }
 
 static JSValue js_agent_sleep(JSContext *ctx, JSValue this_val,
@@ -824,7 +830,7 @@ static JSValue js_agent_sleep(JSContext *ctx, JSValue this_val,
 static int64_t get_clock_ms(void)
 {
     JSPalTime t;
-    js_pal.get_time_monotonic(js_pal.opaque, &t);
+    pal->get_time_monotonic(pal->opaque, &t);
     return t.sec * 1000 + (t.usec / 1000);
 }
 
@@ -841,14 +847,14 @@ static JSValue js_agent_getReport(JSContext *ctx, JSValue this_val,
     AgentReport *rep;
     JSValue ret;
 
-    js_pal.mutex_lock(js_pal.opaque, &tls->report_mutex);
+    pal->mutex_lock(pal->opaque, &tls->report_mutex);
     if (list_empty(&tls->report_list)) {
         rep = NULL;
     } else {
         rep = list_entry(tls->report_list.next, AgentReport, link);
         list_del(&rep->link);
     }
-    js_pal.mutex_unlock(js_pal.opaque, &tls->report_mutex);
+    pal->mutex_unlock(pal->opaque, &tls->report_mutex);
     if (rep) {
         ret = JS_NewString(ctx, rep->str);
         free(rep->str);
@@ -873,9 +879,9 @@ static JSValue js_agent_report(JSContext *ctx, JSValue this_val,
     rep->str = strdup(str);
     JS_FreeCString(ctx, str);
 
-    js_pal.mutex_lock(js_pal.opaque, &tls->report_mutex);
+    pal->mutex_lock(pal->opaque, &tls->report_mutex);
     list_add_tail(&rep->link, &tls->report_list);
-    js_pal.mutex_unlock(js_pal.opaque, &tls->report_mutex);
+    pal->mutex_unlock(pal->opaque, &tls->report_mutex);
     return JS_UNDEFINED;
 }
 
@@ -1399,9 +1405,9 @@ static __attribute__((__format__(__printf__, 1, 2))) void print_error(const char
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     if (update_errors) {
-        js_pal.mutex_lock(js_pal.opaque, &error_list_mutex);
+        pal->mutex_lock(pal->opaque, &error_list_mutex);
         namelist_add(&error_list, NULL, buf);
-        js_pal.mutex_unlock(js_pal.opaque, &error_list_mutex);
+        pal->mutex_unlock(pal->opaque, &error_list_mutex);
     } else {
         fputs(buf, stdout);
     }
@@ -1714,7 +1720,7 @@ void update_stats(JSRuntime *rt, const char *filename) {
     JSMemoryUsage stats;
     JS_ComputeMemoryUsage(rt, &stats);
 
-    js_pal.mutex_lock(js_pal.opaque, &stats_mutex);
+    pal->mutex_lock(pal->opaque, &stats_mutex);
     if (stats_count++ == 0) {
         stats_avg = stats_all = stats_min = stats_max = stats;
         stats_min_filename = strdup(filename);
@@ -1757,7 +1763,7 @@ void update_stats(JSRuntime *rt, const char *filename) {
         update(fast_array_elements);
     }
 #undef update
-    js_pal.mutex_unlock(js_pal.opaque, &stats_mutex);
+    pal->mutex_unlock(pal->opaque, &stats_mutex);
 }
 
 int run_test_buf(ThreadLocalStorage *tls,
@@ -2141,21 +2147,21 @@ static int pal_cond_timedwait_ms(JSPalCond *cond, JSPalMutex *mutex, int timeout
 {
     JSPalTime deadline;
 
-    js_pal.get_time(js_pal.opaque, &deadline);
+    pal->get_time(pal->opaque, &deadline);
     deadline.sec += timeout / 1000;
     deadline.usec += (timeout % 1000) * 1000;
     if (deadline.usec >= 1000000) {
         deadline.usec -= 1000000;
         deadline.sec++;
     }
-    return js_pal.cond_timedwait(js_pal.opaque, cond, mutex, &deadline);
+    return pal->cond_timedwait(pal->opaque, cond, mutex, &deadline);
 }
 
 void *show_progress(void *opaque)
 {
     int test_skipped1, test_failed1, test_count1;
 
-    js_pal.mutex_lock(js_pal.opaque, &progress_mutex);
+    pal->mutex_lock(pal->opaque, &progress_mutex);
     for(;;) {
         pal_cond_timedwait_ms(&progress_cond, &progress_mutex, 50);
 
@@ -2190,7 +2196,7 @@ void *show_progress(void *opaque)
         if (progress_exit_request)
             break;
     }
-    js_pal.mutex_unlock(js_pal.opaque, &progress_mutex);
+    pal->mutex_unlock(pal->opaque, &progress_mutex);
     return NULL;
 }
 
@@ -2290,10 +2296,15 @@ int main(int argc, char **argv)
     BOOL can_block = TRUE;
     BOOL count_skipped_features = FALSE;
     clock_t clocks;
-    
+
+    pal_rt = JS_NewRuntime();
+    if (!pal_rt)
+        fatal(1, "JS_NewRuntime failure");
+    pal = JS_GetRuntimePal(pal_rt);
+
     init_thread_local_storage(tls);
-    js_pal.mutex_init(js_pal.opaque, &stats_mutex);
-    js_pal.mutex_init(js_pal.opaque, &error_list_mutex);
+    pal->mutex_init(pal->opaque, &stats_mutex);
+    pal->mutex_init(pal->opaque, &error_list_mutex);
 
 #if !defined(_WIN32)
     compact = !isatty(STDERR_FILENO);
@@ -2456,9 +2467,9 @@ int main(int argc, char **argv)
             }
         }
 
-        js_pal.cond_init(js_pal.opaque, &progress_cond);
-        js_pal.mutex_init(js_pal.opaque, &progress_mutex);
-        js_pal.thread_create(js_pal.opaque, &progress_thread, show_progress, NULL, 0);
+        pal->cond_init(pal->opaque, &progress_cond);
+        pal->mutex_init(pal->opaque, &progress_mutex);
+        pal->thread_create(pal->opaque, &progress_thread, show_progress, NULL, 0);
 
         threads = malloc(sizeof(threads[0]) * nthreads);
         for (i = 0; i < nthreads; i++) {
@@ -2466,20 +2477,20 @@ int main(int argc, char **argv)
 
             th->thread_index = i;
 
-            js_pal.thread_create(js_pal.opaque, &th->tid, run_test_dir_list, th, 2 << 20); // 2 MB, glibc default
+            pal->thread_create(pal->opaque, &th->tid, run_test_dir_list, th, 2 << 20); // 2 MB, glibc default
         }
         for (i = 0; i < nthreads; i++)
-            js_pal.thread_join(js_pal.opaque, &threads[i].tid);
+            pal->thread_join(pal->opaque, &threads[i].tid);
         free(threads);
 
-        js_pal.mutex_lock(js_pal.opaque, &progress_mutex);
+        pal->mutex_lock(pal->opaque, &progress_mutex);
         progress_exit_request = TRUE;
-        js_pal.cond_signal(js_pal.opaque, &progress_cond);
-        js_pal.mutex_unlock(js_pal.opaque, &progress_mutex);
-        js_pal.thread_join(js_pal.opaque, &progress_thread);
+        pal->cond_signal(pal->opaque, &progress_cond);
+        pal->mutex_unlock(pal->opaque, &progress_mutex);
+        pal->thread_join(pal->opaque, &progress_thread);
 
-        js_pal.mutex_destroy(js_pal.opaque, &progress_mutex);
-        js_pal.cond_destroy(js_pal.opaque, &progress_cond);
+        pal->mutex_destroy(pal->opaque, &progress_mutex);
+        pal->cond_destroy(pal->opaque, &progress_cond);
 
         if (outfile && outfile != stdout) {
             fclose(outfile);
@@ -2495,7 +2506,6 @@ int main(int argc, char **argv)
     clocks = clock() - clocks;
 
     if (dump_memory) {
-        JSPalFunctions* pal = &js_pal;
         if (dump_memory > 1 && stats_count > 1) {
             printf("\nMininum memory statistics for %s:\n\n", stats_min_filename);
             JS_DumpMemoryUsage(pal, &stats_min, NULL);
@@ -2576,6 +2586,8 @@ int main(int argc, char **argv)
     free(harness_features);
     free(harness_exclude);
     free(error_file);
+
+    JS_FreeRuntime(pal_rt);
 
     /* Signal that the error file is out of date. */
     return new_errors || changed_errors || fixed_errors;

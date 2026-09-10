@@ -479,6 +479,10 @@ JSRuntime *JS_NewRuntimePal(const JSMallocFunctions *mf, const JSPalFunctions *p
 void JS_FreeRuntime(JSRuntime *rt);
 void *JS_GetRuntimeOpaque(JSRuntime *rt);
 void JS_SetRuntimeOpaque(JSRuntime *rt, void *opaque);
+/* the PAL functions backing this runtime -- the sanctioned way for host
+   code to reach platform primitives (thread/mutex/time/...) instead of
+   depending on the engine's default PAL implementation directly. */
+const JSPalFunctions *JS_GetRuntimePal(JSRuntime *rt);
 typedef void JS_MarkFunc(JSRuntime *rt, JSGCObjectHeader *gp);
 void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func);
 void JS_RunGC(JSRuntime *rt);
@@ -544,7 +548,7 @@ typedef struct JSMemoryUsage {
 } JSMemoryUsage;
 
 void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s);
-void JS_DumpMemoryUsage(JSPalFunctions *fp, const JSMemoryUsage *s, JSRuntime *rt);
+void JS_DumpMemoryUsage(const JSPalFunctions *fp, const JSMemoryUsage *s, JSRuntime *rt);
 
 /* atom support */
 #define JS_ATOM_NULL 0
