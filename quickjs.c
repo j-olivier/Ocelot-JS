@@ -48,6 +48,8 @@
 #define free(p) free_is_forbidden(p)
 #define realloc(p,s) realloc_is_forbidden(p,s)
 
+#define printf(...) rt->pal.printf(rt->pal.opaque, __VA_ARGS__)
+
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
 #if defined(__EMSCRIPTEN__)
@@ -1725,10 +1727,11 @@ static size_t __js_malloc_usable_size(JSMallocContext *s, const char *ptr)
     }
 }
 
-static __maybe_unused void js_malloc_dump_arenas(JSMallocContext *s)
+static __maybe_unused void js_malloc_dump_arenas(JSRuntime *rt)
 {
     struct list_head *el;
     int block_size_idx;
+    JSMallocContext* s = &rt->malloc_ctx;
 
     printf("%20s %10s %10s\n", "PTR", "BLK_SIZE", "ALLOC");
     for(block_size_idx = 0; block_size_idx < JS_MALLOC_BLOCK_SIZE_COUNT; block_size_idx++) {
@@ -11665,6 +11668,7 @@ static __maybe_unused void js_bigint_dump1(JSContext *ctx, const char *str,
                                            const js_limb_t *tab, int len)
 {
     int i;
+    JSRuntime* rt = ctx->rt;
     printf("%s: ", str);
     for(i = len - 1; i >= 0; i--) {
 #if JS_LIMB_BITS == 32
@@ -14488,6 +14492,7 @@ static __maybe_unused void print_atom(JSContext *ctx, JSAtom atom)
 
 static __maybe_unused void JS_DumpAtom(JSContext *ctx, const char *str, JSAtom atom)
 {
+    JSRuntime* rt = ctx->rt;
     printf("%s=", str);
     print_atom(ctx, atom);
     printf("\n");
@@ -14495,6 +14500,7 @@ static __maybe_unused void JS_DumpAtom(JSContext *ctx, const char *str, JSAtom a
 
 static __maybe_unused void JS_DumpValue(JSContext *ctx, const char *str, JSValueConst val)
 {
+    JSRuntime* rt = ctx->rt;
     printf("%s=", str);
     JS_PrintValue(ctx, js_dump_value_write, stdout, val, NULL);
     printf("\n");
@@ -22243,6 +22249,7 @@ static void free_token(JSParseState *s, JSToken *token)
 static void __attribute((unused)) dump_token(JSParseState *s,
                                              const JSToken *token)
 {
+    JSRuntime* rt = s->ctx->rt;
     switch(token->val) {
     case TOK_NUMBER:
         {

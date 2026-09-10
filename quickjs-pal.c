@@ -35,7 +35,9 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -77,6 +79,21 @@ static void pal_abort(JSPal *opaque)
 {
     (void)opaque;
     js_abort();
+}
+
+/*----------------------------------------------------------------------*/
+/* debug output */
+
+static int pal_printf(JSPal *opaque, const char *format, ...)
+{
+    va_list ap;
+    int ret;
+
+    (void)opaque;
+    va_start(ap, format);
+    ret = vprintf(format, ap);
+    va_end(ap);
+    return ret;
 }
 
 /*----------------------------------------------------------------------*/
@@ -443,6 +460,7 @@ static int pal_thread_detach(JSPal *opaque, JSPalThread *thread)
 
 const JSPalFunctions js_pal = {
     .abort = pal_abort,
+    .printf = pal_printf,
     .get_time = pal_get_time,
     .get_time_monotonic = pal_get_time_monotonic,
     .get_timezone_offset = pal_get_timezone_offset,

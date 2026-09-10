@@ -455,6 +455,10 @@ struct JSPalFunctions {
     /* releases the implementation's resources for a thread that will
        never be joined (the pthread_detach()/CloseHandle() analogue) */
     int (*thread_detach)(JSPal *opaque, JSPalThread *thread);
+
+    /* printf-style debug output (stdout-equivalent); used only by the
+       engine's optional debug/dump routines. */
+    int (*printf)(JSPal *opaque, const char *format, ...) __js_printf_like(2, 3);
 };
 
 JSRuntime *JS_NewRuntime(void);
