@@ -2495,14 +2495,15 @@ int main(int argc, char **argv)
     clocks = clock() - clocks;
 
     if (dump_memory) {
+        JSPalFunctions* pal = &js_pal;
         if (dump_memory > 1 && stats_count > 1) {
             printf("\nMininum memory statistics for %s:\n\n", stats_min_filename);
-            JS_DumpMemoryUsage(stdout, &stats_min, NULL);
+            JS_DumpMemoryUsage(pal, &stats_min, NULL);
             printf("\nMaximum memory statistics for %s:\n\n", stats_max_filename);
-            JS_DumpMemoryUsage(stdout, &stats_max, NULL);
+            JS_DumpMemoryUsage(pal, &stats_max, NULL);
         }
         printf("\nAverage memory statistics for %d tests:\n\n", stats_count);
-        JS_DumpMemoryUsage(stdout, &stats_avg, NULL);
+        JS_DumpMemoryUsage(pal, &stats_avg, NULL);
         printf("\n");
     }
 

@@ -44,6 +44,7 @@
 
 #include "cutils.h"
 #include "quickjs-libc.h"
+#include "quickjs-pal.h"
 
 extern const uint8_t qjsc_repl[];
 extern const uint32_t qjsc_repl_size;
@@ -532,7 +533,7 @@ int main(int argc, char **argv)
     if (dump_memory) {
         JSMemoryUsage stats;
         JS_ComputeMemoryUsage(rt, &stats);
-        JS_DumpMemoryUsage(stdout, &stats, rt);
+        JS_DumpMemoryUsage(&js_pal, &stats, rt);
     }
     js_std_free_handlers(rt);
     JS_FreeContext(ctx);

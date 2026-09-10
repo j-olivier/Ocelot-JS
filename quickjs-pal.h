@@ -33,7 +33,7 @@ extern "C" {
 
 /* the default PAL, used when JS_NewRuntime()/JS_NewRuntime2() or
    JS_NewRuntimePal(mf, NULL, opaque) are called */
-extern const JSPalFunctions js_pal;
+extern JSPalFunctions js_pal;
 
 /* process-wide panic hook (no per-runtime state involved). noreturn even
    though the JSPal hook it calls is a plain function pointer -- without

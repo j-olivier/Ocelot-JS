@@ -45,13 +45,8 @@
 #define free(p) free_is_forbidden(p)
 #define realloc(p,s) realloc_is_forbidden(p,s)
 
-#define printf(...) rt->pal.printf(rt->pal.opaque, __VA_ARGS__)
-/* JS_DumpMemoryUsage() is the only caller; its "fp" parameter is kept for
-   API compatibility but ignored -- output always goes through rt->pal.
-   (forwards to the printf macro above rather than repeating its body --
-   textually duplicating "pal.printf(" here would be rescanned as a call
-   to the *other* macro and double-expand) */
-#define fprintf(fp, ...) printf(__VA_ARGS__)
+#define fprintf(pal, ...) pal->print_f(pal->opaque, __VA_ARGS__)
+#define printf(...) rt->pal.print_f(rt->pal.opaque, __VA_ARGS__)
 
 #define OPTIMIZE         1
 #define SHORT_OPCODES    1
@@ -2802,7 +2797,7 @@ void JS_FreeContext(JSContext *ctx)
     {
         JSMemoryUsage stats;
         JS_ComputeMemoryUsage(rt, &stats);
-        JS_DumpMemoryUsage(stdout, &stats, rt);
+        JS_DumpMemoryUsage(&rt->pal, &stats, rt);
     }
 #endif
 
@@ -7251,7 +7246,7 @@ void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s)
         s->js_func_size + s->js_func_code_size + s->js_func_pc2line_size;
 }
 
-void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt)
+void JS_DumpMemoryUsage(JSPalFunctions *fp, const JSMemoryUsage *s, JSRuntime *rt)
 {
     fprintf(fp, "QuickJS memory usage -- " CONFIG_VERSION " version, %d-bit, malloc limit: %"PRId64"\n\n",
             (int)sizeof(void *) * 8, s->malloc_limit);

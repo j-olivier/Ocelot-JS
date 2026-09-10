@@ -458,7 +458,7 @@ struct JSPalFunctions {
 
     /* printf-style debug output (stdout-equivalent); used only by the
        engine's optional debug/dump routines. */
-    int (*printf)(JSPal *opaque, const char *format, ...) __js_printf_like(2, 3);
+    int (*print_f)(JSPal *opaque, const char *format, ...) __js_printf_like(2, 3);
 };
 
 JSRuntime *JS_NewRuntime(void);
@@ -544,7 +544,7 @@ typedef struct JSMemoryUsage {
 } JSMemoryUsage;
 
 void JS_ComputeMemoryUsage(JSRuntime *rt, JSMemoryUsage *s);
-void JS_DumpMemoryUsage(FILE *fp, const JSMemoryUsage *s, JSRuntime *rt);
+void JS_DumpMemoryUsage(JSPalFunctions *fp, const JSMemoryUsage *s, JSRuntime *rt);
 
 /* atom support */
 #define JS_ATOM_NULL 0

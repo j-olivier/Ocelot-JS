@@ -458,9 +458,9 @@ static int pal_thread_detach(JSPal *opaque, JSPalThread *thread)
 
 /*----------------------------------------------------------------------*/
 
-const JSPalFunctions js_pal = {
+JSPalFunctions js_pal = {
     .abort = pal_abort,
-    .printf = pal_printf,
+    .print_f = pal_printf,
     .get_time = pal_get_time,
     .get_time_monotonic = pal_get_time_monotonic,
     .get_timezone_offset = pal_get_timezone_offset,
