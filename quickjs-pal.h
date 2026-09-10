@@ -31,14 +31,6 @@
 extern "C" {
 #endif
 
-/* process-wide panic hook (no per-runtime state involved). noreturn even
-   though the JSPal hook it calls is a plain function pointer -- without
-   this, GCC/Clang lose the "control flow ends here" information that
-   abort() (a builtin) gives them for free, and -Wmaybe-uninitialized
-   misfires at every call site that relies on it to make a switch/if
-   exhaustive. */
-void js_abort(void) __attribute__((noreturn));
-
 /* atomic ops backing the JS Atomics object / SharedArrayBuffer. These are
    compiler/CPU primitives (C11 <stdatomic.h>), not part of JSPal, since
    every supported target has stdatomic.h and there is no realistic host

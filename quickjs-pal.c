@@ -68,17 +68,12 @@
 /*----------------------------------------------------------------------*/
 /* panic */
 
-void js_abort(void)
-{
-    abort();
-}
-
 static void pal_abort(JSPal *opaque) __attribute__((noreturn));
 
 static void pal_abort(JSPal *opaque)
 {
     (void)opaque;
-    js_abort();
+    abort();
 }
 
 /*----------------------------------------------------------------------*/

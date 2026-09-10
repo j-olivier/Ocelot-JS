@@ -420,7 +420,13 @@ typedef struct JSPalThread { union { void *_align; unsigned char opaque[64]; }; 
 struct JSPalFunctions {
     JSPal *opaque;
 
-    void (*abort)(JSPal *opaque);
+    /* process-wide panic hook (no per-runtime state involved). noreturn even
+       though the JSPal hook it calls is a plain function pointer -- without
+       this, GCC/Clang lose the "control flow ends here" information that
+       abort() (a builtin) gives them for free, and -Wmaybe-uninitialized
+       misfires at every call site that relies on it to make a switch/if
+       exhaustive. */
+    void (*abort)(JSPal *opaque) __attribute__((noreturn));
     /* wall clock time (gettimeofday-equivalent) */
     void (*get_time)(JSPal *opaque, JSPalTime *t);
     /* monotonic clock, unaffected by wall-clock adjustments */
