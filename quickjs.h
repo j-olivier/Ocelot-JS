@@ -783,6 +783,23 @@ JSValue __js_printf_like(2, 3) JS_ThrowRangeError(JSContext *ctx, const char *fm
 JSValue __js_printf_like(2, 3) JS_ThrowInternalError(JSContext *ctx, const char *fmt, ...);
 JSValue JS_ThrowOutOfMemory(JSContext *ctx);
 
+/* Fatal errors: like JS_ThrowInternalError(), but the resulting exception is
+   marked uncatchable (see JS_SetUncatchableException()) so a script-level
+   try/catch can never swallow it and keep running -- it unwinds every call
+   frame and propagates straight out to the host's JS_Eval()/JS_Call()
+   caller. This is the "clean exit" replacement for abort(): the engine
+   reports the failure through the normal exception mechanism, with a code
+   and message the host can read back via the getters below, instead of
+   terminating the process itself. */
+enum {
+    JS_FATAL_ERROR_NONE     = 0,
+    JS_FATAL_ERROR_INTERNAL = 1,
+};
+JSValue __js_printf_like(3, 4) JS_ThrowFatalError(JSContext *ctx, int32_t code, const char *fmt, ...);
+JS_BOOL JS_HasFatalError(JSRuntime *rt);
+int32_t JS_GetFatalErrorCode(JSRuntime *rt);
+const char *JS_GetFatalErrorMessage(JSRuntime *rt);
+
 void __JS_FreeValue(JSContext *ctx, JSValue v);
 
 static inline JSRefCountHeader *__js_rc(void *ptr)

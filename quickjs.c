@@ -363,6 +363,12 @@ struct JSRuntime {
     /* true if inside an out of memory error, to avoid recursing */
     BOOL in_out_of_memory : 8;
 
+    /* set by JS_ThrowFatalError(); sticky (survives JS_GetException()) so
+       the host can read it back after the exception unwinds out. */
+    BOOL fatal_error : 8;
+    int32_t fatal_error_code;
+    char fatal_error_msg[256]; /* fixed buffer: a fatal error may occur under memory pressure */
+
     struct JSStackFrame *current_stack_frame;
 
     JSInterruptHandler *interrupt_handler;
@@ -7899,6 +7905,40 @@ static void JS_ThrowInterrupted(JSContext *ctx)
     JS_SetUncatchableException(ctx, TRUE);
 }
 
+JSValue JS_ThrowFatalError(JSContext *ctx, int32_t code, const char *fmt, ...)
+{
+    JSRuntime *rt = ctx->rt;
+    va_list ap;
+
+    va_start(ap, fmt);
+    vsnprintf(rt->fatal_error_msg, sizeof(rt->fatal_error_msg), fmt, ap);
+    va_end(ap);
+    rt->fatal_error = TRUE;
+    rt->fatal_error_code = code;
+    JS_ThrowInternalError(ctx, "%s", rt->fatal_error_msg);
+    /* uncatchable: a script-level try/catch must never be able to swallow a
+       fatal engine error and keep running (which could re-trigger the same
+       condition in an endless loop) -- this forces the exception to unwind
+       every frame up to the host's JS_Eval()/JS_Call() caller. */
+    JS_SetUncatchableException(ctx, TRUE);
+    return JS_EXCEPTION;
+}
+
+JS_BOOL JS_HasFatalError(JSRuntime *rt)
+{
+    return rt->fatal_error;
+}
+
+int32_t JS_GetFatalErrorCode(JSRuntime *rt)
+{
+    return rt->fatal_error_code;
+}
+
+const char *JS_GetFatalErrorMessage(JSRuntime *rt)
+{
+    return rt->fatal_error_msg;
+}
+
 static no_inline __exception int __js_poll_interrupts(JSContext *ctx)
 {
     JSRuntime *rt = ctx->rt;
@@ -10689,7 +10729,6 @@ static int JS_DefineAutoInitProperty(JSContext *ctx, JSValueConst this_obj,
 {
     JSObject *p;
     JSProperty *pr;
-    JSRuntime *rt = ctx->rt;
 
     if (JS_VALUE_GET_TAG(this_obj) != JS_TAG_OBJECT)
         return FALSE;
@@ -10698,8 +10737,11 @@ static int JS_DefineAutoInitProperty(JSContext *ctx, JSValueConst this_obj,
 
     if (find_own_property(&pr, p, prop)) {
         /* property already exists */
-        abort();
-        return FALSE;
+        char buf1[ATOM_GET_STR_BUF_SIZE];
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL,
+                           "JS_DefineAutoInitProperty: property '%s' already exists",
+                           JS_AtomGetStr(ctx, buf1, sizeof(buf1), prop));
+        return -1;
     }
 
     /* Specialized CreateProperty */
