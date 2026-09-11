@@ -42,7 +42,6 @@
 #define fprintf(pal, ...) jspal_printf(pal, __VA_ARGS__)
 #define fputc(c, pal) jspal_printf(pal, "%c", c)
 #define printf(...) jspal_printf(rt->pal, __VA_ARGS__)
-#define abort() jspal_abort(rt->pal)
 typedef JSPalMutex pthread_mutex_t;
 typedef JSPalCond pthread_cond_t;
 #define pthread_mutex_lock(mutex) jspal_mutex_lock(pal, (mutex))

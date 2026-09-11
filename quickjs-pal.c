@@ -66,15 +66,6 @@
 #endif
 
 /*----------------------------------------------------------------------*/
-/* panic */
-
-void jspal_abort(JSPal *opaque)
-{
-    (void)opaque;
-    abort();
-}
-
-/*----------------------------------------------------------------------*/
 /* debug output */
 
 int jspal_printf(JSPal *opaque, const char *format, ...)

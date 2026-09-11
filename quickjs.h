@@ -406,9 +406,6 @@ extern int jspal_get_timezone_offset(JSPal *opaque, int64_t time_ms);
 /* printf-style debug output (stdout-equivalent); used only by the engine's optional debug/dump routines. */
 extern int jspal_printf(JSPal *opaque, const char *format, ...) __js_printf_like(2, 3);
 
-/* process-wide panic hook. noreturn. */
-extern void jspal_abort(JSPal *opaque) __attribute__((noreturn));
-
 /* thread */
 /* stack_size == 0 means "use the platform default" */
 extern int jspal_thread_create(JSPal *opaque, JSPalThread *thread, void *(*start)(void *arg), void *arg, size_t stack_size);
