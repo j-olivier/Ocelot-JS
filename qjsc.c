@@ -27,10 +27,18 @@
 #include <inttypes.h>
 #include <string.h>
 #include <assert.h>
+#if !defined(_MSC_VER)
 #include <unistd.h>
+#endif
 #include <errno.h>
 #if !defined(_WIN32)
 #include <sys/wait.h>
+#endif
+#if defined(_MSC_VER)
+/* native MSVC CRT/ucrt: provide the POSIX names used below (getpid, access,
+   unlink -- unistd.h doesn't exist here; MinGW's CRT already provides them
+   natively, so this is _MSC_VER-only, not _WIN32) */
+#include "quickjs-libc-win32-compat.h"
 #endif
 
 #include "cutils.h"
@@ -576,6 +584,7 @@ static const char *get_short_optarg(int *poptind, int opt,
 int main(int argc, char **argv)
 {
     int i, verbose, strip_flags;
+    int optind;
     const char *out_filename, *cname;
     char cfilename[1024];
     FILE *fo;
