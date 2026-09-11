@@ -455,7 +455,7 @@ int main(int argc, char **argv)
 
     if (trace_memory) {
         js_trace_malloc_init(&trace_data);
-        rt = JS_NewRuntime2(NULL, &trace_mf, &trace_data);
+        rt = JS_NewRuntime2(&trace_mf, &trace_data, NULL);
     } else {
         rt = JS_NewRuntime();
     }

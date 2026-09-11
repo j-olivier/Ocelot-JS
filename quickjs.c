@@ -40,11 +40,21 @@
 
 // PAL redirections
 #define fprintf(pal, ...) jspal_printf(pal, __VA_ARGS__)
+#define fputc(c, pal) jspal_printf(pal, "%c", c)
 #define printf(...) jspal_printf(rt->pal, __VA_ARGS__)
 #define abort() jspal_abort(rt->pal)
+typedef JSPalMutex pthread_mutex_t;
+typedef JSPalCond pthread_cond_t;
+#define pthread_mutex_lock(mutex) jspal_mutex_lock(pal, (mutex))
+#define pthread_mutex_unlock(mutex) jspal_mutex_unlock(pal, (mutex))
+#define pthread_cond_init(cond, attr) jspal_cond_init(pal, (cond))
+#define pthread_cond_destroy(cond) jspal_cond_destroy(pal, (cond))
+#define pthread_cond_wait(cond, mutex) jspal_cond_wait(pal, (cond), (mutex))
+#define pthread_cond_timedwait(cond, mutex, time) jspal_cond_timedwait(pal, (cond), (mutex), (time))
+#define pthread_cond_signal(cond) jspal_cond_signal(pal, (cond))
 
 /* the only OS allocator calls in this file live in js_def_malloc & co
-   below, which go through jspal_memory_malloc/free/realloc instead --
+   below, which go through jspal_malloc/free/realloc instead --
    poison the raw names so no other call site can sneak one in. */
 #define malloc(s) malloc_is_forbidden(s)
 #define free(p) free_is_forbidden(p)
@@ -2068,7 +2078,7 @@ static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 }
 #endif
 
-JSRuntime *JS_NewRuntime2(JSPal *pal, const JSMallocFunctions *mf, void *opaque)
+JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque, JSPal *pal)
 {
     JSRuntime *rt;
     JSMallocState ms;
@@ -2147,7 +2157,7 @@ JSPal *JS_GetRuntimePal(JSRuntime *rt)
 }
 
 /* default memory allocation functions with memory limitation.
-   The actual OS allocator calls live in jspal_memory_malloc/free/realloc/
+   The actual OS allocator calls live in jspal_malloc/free/realloc/
    memory_malloc_usable_size (quickjs-pal.c); this file never calls the OS
    allocator directly (see the poison #defines near the top). Dispatched
    dynamically via s->pal so each JSRuntime can supply its own PAL. */
@@ -2221,7 +2231,7 @@ static const JSMallocFunctions def_malloc_funcs = {
 
 JSRuntime *JS_NewRuntime(void)
 {
-    return JS_NewRuntime2(NULL, &def_malloc_funcs, NULL);
+    return JS_NewRuntime2(&def_malloc_funcs, NULL, NULL);
 }
 
 void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
@@ -2982,14 +2992,17 @@ static uint32_t hash_string_rope(JSValueConst val, uint32_t h)
 
 static __maybe_unused void JS_DumpChar(JSRuntime* rt, int c, int sep)
 {
+    JSPal* fo = rt->pal;
     if (c == sep || c == '\\') {
-        printf("\\%c", c);
+        fputc('\\', fo);
+        fputc(c, fo);
     } else if (c >= ' ' && c <= 126) {
-        printf("%c", c);
+        fputc(c, fo);
     } else if (c == '\n') {
-        printf("\\n");
+        fputc('\\', fo);
+        fputc('n', fo);
     } else {
-        printf("\\u%04x", c);
+        fprintf(fo, "\\u%04x", c);
     }
 }
 
@@ -3130,9 +3143,10 @@ JSAtom JS_DupAtom(JSContext *ctx, JSAtom v)
 
 static JSAtomKindEnum JS_AtomGetKind(JSContext *ctx, JSAtom v)
 {
-    JSRuntime *rt = ctx->rt;
+    JSRuntime *rt;
     JSAtomStruct *p;
 
+    rt = ctx->rt;
     if (__JS_AtomIsTaggedInt(v))
         return JS_ATOM_KIND_STRING;
     p = rt->atom_array[v];
@@ -3824,7 +3838,7 @@ static inline BOOL JS_IsEmptyString(JSValueConst v)
    engine's default js_pal. Every JSRuntime that can reach this mutex must
    therefore use PAL implementations with mutually compatible mutex/cond
    representations -- in practice, the same PAL implementation. */
-static void js_pal_mutex_lazy_init(JSPal *pal, JSPalMutex *mutex, uint32_t *state)
+static void js_pal_mutex_lazy_init(JSPal *pal, pthread_mutex_t *mutex, uint32_t *state)
 {
     uint32_t expected;
     for (;;) {
@@ -3840,18 +3854,17 @@ static void js_pal_mutex_lazy_init(JSPal *pal, JSPalMutex *mutex, uint32_t *stat
     }
 }
 
-static JSPalMutex js_class_id_mutex;
+static pthread_mutex_t js_class_id_mutex;
 static uint32_t js_class_id_mutex_state;
 #endif
 
 /* a new class ID is allocated if *pclass_id != 0 */
-JSClassID JS_NewClassID(JSRuntime *rt, JSClassID *pclass_id)
+JSClassID JS_NewClassID(JSClassID *pclass_id, JSPal *pal)
 {
     JSClassID class_id;
 #ifdef CONFIG_ATOMICS
-    JSPal *pal = rt->pal;
     js_pal_mutex_lazy_init(pal, &js_class_id_mutex, &js_class_id_mutex_state);
-    jspal_mutex_lock(pal, &js_class_id_mutex);
+    pthread_mutex_lock(&js_class_id_mutex);
 #endif
     class_id = *pclass_id;
     if (class_id == 0) {
@@ -3859,7 +3872,7 @@ JSClassID JS_NewClassID(JSRuntime *rt, JSClassID *pclass_id)
         *pclass_id = class_id;
     }
 #ifdef CONFIG_ATOMICS
-    jspal_mutex_unlock(pal, &js_class_id_mutex);
+    pthread_mutex_unlock(&js_class_id_mutex);
 #endif
     return class_id;
 }
@@ -47448,9 +47461,9 @@ static uint64_t xorshift64star(uint64_t *pstate)
 
 static void js_random_init(JSContext *ctx)
 {
-    JSPalTime t;
-    jspal_get_time(ctx->rt->pal, &t);
-    ctx->random_state = ((int64_t)t.sec * 1000000) + t.usec;
+    JSPalTime tv;
+    jspal_get_time(ctx->rt->pal, &tv);
+    ctx->random_state = ((int64_t)tv.sec * 1000000) + tv.usec;
     /* the state must be non zero */
     if (ctx->random_state == 0)
         ctx->random_state = 1;
@@ -60670,24 +60683,24 @@ static JSValue js_atomics_op(JSContext *ctx,
 
 #define OP(op_name, func_name)                            \
     case ATOMICS_OP_ ## op_name | (0 << 3):               \
-       a = jspal_atomic_ ## func_name ## _8((uint8_t *)ptr, v);  \
+       a = jspal_ ## func_name ## _8((uint8_t *)ptr, v);  \
        break;                                             \
     case ATOMICS_OP_ ## op_name | (1 << 3):                 \
-        a = jspal_atomic_ ## func_name ## _16((uint16_t *)ptr, v); \
+        a = jspal_ ## func_name ## _16((uint16_t *)ptr, v); \
         break;                                               \
     case ATOMICS_OP_ ## op_name | (2 << 3):                 \
-        a = jspal_atomic_ ## func_name ## _32((uint32_t *)ptr, v); \
+        a = jspal_ ## func_name ## _32((uint32_t *)ptr, v); \
         break;                                               \
     case ATOMICS_OP_ ## op_name | (3 << 3):                 \
-        a = jspal_atomic_ ## func_name ## _64((uint64_t *)ptr, v); \
+        a = jspal_ ## func_name ## _64((uint64_t *)ptr, v); \
         break;
 
-        OP(ADD, fetch_add)
-        OP(AND, fetch_and)
-        OP(OR, fetch_or)
-        OP(SUB, fetch_sub)
-        OP(XOR, fetch_xor)
-        OP(EXCHANGE, exchange)
+        OP(ADD, atomic_fetch_add)
+        OP(AND, atomic_fetch_and)
+        OP(OR, atomic_fetch_or)
+        OP(SUB, atomic_fetch_sub)
+        OP(XOR, atomic_fetch_xor)
+        OP(EXCHANGE, atomic_exchange)
 #undef OP
 
     case ATOMICS_OP_LOAD | (0 << 3):
@@ -60843,11 +60856,11 @@ static JSValue js_atomics_isLockFree(JSContext *ctx,
 typedef struct JSAtomicsWaiter {
     struct list_head link;
     BOOL linked;
-    JSPalCond cond;
+    pthread_cond_t cond;
     int32_t *ptr;
 } JSAtomicsWaiter;
 
-static JSPalMutex js_atomics_mutex;
+static pthread_mutex_t js_atomics_mutex;
 static uint32_t js_atomics_mutex_state;
 static struct list_head js_atomics_waiter_list =
     LIST_HEAD_INIT(js_atomics_waiter_list);
@@ -60905,7 +60918,7 @@ static JSValue js_atomics_wait(JSContext *ctx,
     uint64_t idx;
     void *ptr;
     int64_t timeout;
-    JSPalTime deadline;
+    JSPalTime ts;
     JSAtomicsWaiter waiter_s, *waiter;
     int ret, size_log2, res;
     double d;
@@ -60942,46 +60955,46 @@ static JSValue js_atomics_wait(JSContext *ctx,
        'ptr' value */
     /* XXX: use Linux futexes when available ? */
     js_pal_mutex_lazy_init(pal, &js_atomics_mutex, &js_atomics_mutex_state);
-    jspal_mutex_lock(pal, &js_atomics_mutex);
+    pthread_mutex_lock(&js_atomics_mutex);
     if (size_log2 == 3) {
         res = *(int64_t *)ptr != v;
     } else {
         res = *(int32_t *)ptr != v;
     }
     if (res) {
-        jspal_mutex_unlock(pal, &js_atomics_mutex);
+        pthread_mutex_unlock(&js_atomics_mutex);
         return JS_AtomToString(ctx, JS_ATOM_not_equal);
     }
 
     waiter = &waiter_s;
     waiter->ptr = ptr;
-    jspal_cond_init(pal, &waiter->cond);
+    pthread_cond_init(&waiter->cond, NULL);
     waiter->linked = TRUE;
     list_add_tail(&waiter->link, &js_atomics_waiter_list);
 
     if (timeout == INT64_MAX) {
-        jspal_cond_wait(pal, &waiter->cond, &js_atomics_mutex);
+        pthread_cond_wait(&waiter->cond, &js_atomics_mutex);
         ret = 0;
     } else {
-        /* deadline is wall-clock based (matches the pre-PAL
+        /* ts is wall-clock based (matches the pre-PAL
            CLOCK_REALTIME behavior): switching to a monotonic deadline
-           would require every JSPalCond to be created against the
+           would require every pthread_cond_t to be created against the
            monotonic clock (pthread_condattr_setclock), which macOS's
            libc does not support, so it is not done here. */
-        jspal_get_time(pal, &deadline);
-        deadline.sec += timeout / 1000;
-        deadline.usec += (timeout % 1000) * 1000;
-        if (deadline.usec >= 1000000) {
-            deadline.usec -= 1000000;
-            deadline.sec++;
+        jspal_get_time(pal, &ts);
+        ts.sec += timeout / 1000;
+        ts.usec += (timeout % 1000) * 1000;
+        if (ts.usec >= 1000000) {
+            ts.usec -= 1000000;
+            ts.sec++;
         }
-        ret = jspal_cond_timedwait(pal, &waiter->cond, &js_atomics_mutex,
-                                    &deadline);
+        ret = pthread_cond_timedwait(&waiter->cond, &js_atomics_mutex,
+                                     &ts);
     }
     if (waiter->linked)
         list_del(&waiter->link);
-    jspal_mutex_unlock(pal, &js_atomics_mutex);
-    jspal_cond_destroy(pal, &waiter->cond);
+    pthread_mutex_unlock(&js_atomics_mutex);
+    pthread_cond_destroy(&waiter->cond);
     if (ret != 0) {
         return JS_AtomToString(ctx, JS_ATOM_timed_out);
     } else {
@@ -61021,7 +61034,7 @@ static JSValue js_atomics_notify(JSContext *ctx,
         /* 'argv[0]' is a SharedArrayBuffer so it cannot be detached nor reduced */
         ptr = p->u.array.u.uint8_ptr + ((uintptr_t)idx << size_log2);
         js_pal_mutex_lazy_init(pal, &js_atomics_mutex, &js_atomics_mutex_state);
-        jspal_mutex_lock(pal, &js_atomics_mutex);
+        pthread_mutex_lock(&js_atomics_mutex);
         init_list_head(&waiter_list);
         list_for_each_safe(el, el1, &js_atomics_waiter_list) {
             waiter = list_entry(el, JSAtomicsWaiter, link);
@@ -61036,9 +61049,9 @@ static JSValue js_atomics_notify(JSContext *ctx,
         }
         list_for_each(el, &waiter_list) {
             waiter = list_entry(el, JSAtomicsWaiter, link);
-            jspal_cond_signal(pal, &waiter->cond);
+            pthread_cond_signal(&waiter->cond);
         }
-        jspal_mutex_unlock(pal, &js_atomics_mutex);
+        pthread_mutex_unlock(&js_atomics_mutex);
     }
     return JS_NewInt32(ctx, n);
 }

@@ -380,20 +380,8 @@ typedef struct JSMallocFunctions {
 
 typedef struct JSGCObjectHeader JSGCObjectHeader;
 
-/* PAL (Platform Abstraction Layer): host OS primitives. JSMallocFunctions
-   above remains the pluggable, usage-tracked allocation API; JSPal functions
-   memory_malloc/memory_free/memory_realloc/memory_malloc_usable_size
-   exist only so *that* API's default implementation (js_def_malloc & co
-   in quickjs.c) doesn't call the OS allocator directly -- same reasoning
-   as every other JSPal functions member. Opaque handle types are fixed-size
-   blobs sized to hold a native primitive (e.g. pthread_mutex_t or a Win32
-   CRITICAL_SECTION) without heap allocation.
-
-   Every JSPal functions function takes a JSPal * as its first argument
-   (JS_NewRuntimePal() stores the JSPal * by value in JSRuntime, so
-   this is always rt->pal in practice) -- this is what lets a
-   custom JSPal functions implementation keep per-JSRuntime state instead of
-   relying on process-global variables. */
+/* PAL (Platform Abstraction Layer):
+   Every JSPal functions function takes a JSPal * as its first argument. */
 typedef struct JSPalTime {
     int64_t sec;
     int64_t usec;
@@ -418,12 +406,7 @@ extern int jspal_get_timezone_offset(JSPal *opaque, int64_t time_ms);
 /* printf-style debug output (stdout-equivalent); used only by the engine's optional debug/dump routines. */
 extern int jspal_printf(JSPal *opaque, const char *format, ...) __js_printf_like(2, 3);
 
-/* process-wide panic hook (no per-runtime state involved). noreturn even
-    though the JSPal hook it calls is a plain function pointer -- without
-    this, GCC/Clang lose the "control flow ends here" information that
-    abort() (a builtin) gives them for free, and -Wmaybe-uninitialized
-    misfires at every call site that relies on it to make a switch/if
-    exhaustive. */
+/* process-wide panic hook. noreturn. */
 extern void jspal_abort(JSPal *opaque) __attribute__((noreturn));
 
 /* thread */
@@ -498,13 +481,10 @@ void JS_SetMaxStackSize(JSRuntime *rt, size_t stack_size);
 /* should be called when changing thread to update the stack top value
    used to check stack overflow. */
 void JS_UpdateStackTop(JSRuntime *rt);
-JSRuntime *JS_NewRuntime2(JSPal *pal, const JSMallocFunctions *mf, void *opaque);
+JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque, JSPal *pal);
 void JS_FreeRuntime(JSRuntime *rt);
 void *JS_GetRuntimeOpaque(JSRuntime *rt);
 void JS_SetRuntimeOpaque(JSRuntime *rt, void *opaque);
-/* the PAL functions backing this runtime -- the sanctioned way for host
-   code to reach platform primitives (thread/mutex/time/...) instead of
-   depending on the engine's default PAL implementation directly. */
 JSPal *JS_GetRuntimePal(JSRuntime *rt);
 typedef void JS_MarkFunc(JSRuntime *rt, JSGCObjectHeader *gp);
 void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func);
@@ -670,7 +650,7 @@ typedef struct JSClassDef {
 } JSClassDef;
 
 #define JS_INVALID_CLASS_ID 0
-JSClassID JS_NewClassID(JSRuntime *rt, JSClassID *pclass_id);
+JSClassID JS_NewClassID(JSClassID *pclass_id, JSPal *pal);
 /* Returns the class ID if `v` is an object, otherwise returns JS_INVALID_CLASS_ID. */
 JSClassID JS_GetClassID(JSValue v);
 int JS_NewClass(JSRuntime *rt, JSClassID class_id, const JSClassDef *class_def);
