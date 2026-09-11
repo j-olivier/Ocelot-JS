@@ -796,6 +796,7 @@ enum {
     JS_FATAL_ERROR_INTERNAL = 1,
 };
 JSValue __js_printf_like(3, 4) JS_ThrowFatalError(JSContext *ctx, int32_t code, const char *fmt, ...);
+void __js_printf_like(3, 4) JS_ThrowFatalErrorRT(JSRuntime *rt, int32_t code, const char *fmt, ...);
 JS_BOOL JS_HasFatalError(JSRuntime *rt);
 int32_t JS_GetFatalErrorCode(JSRuntime *rt);
 const char *JS_GetFatalErrorMessage(JSRuntime *rt);

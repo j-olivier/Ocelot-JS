@@ -3167,7 +3167,8 @@ static JSAtomKindEnum JS_AtomGetKind(JSContext *ctx, JSAtom v)
         else
             return JS_ATOM_KIND_SYMBOL;
     default:
-        abort();
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "JS_AtomGetKind: unhandled atom_type");
+        return JS_ATOM_KIND_STRING;
     }
 }
 
@@ -6451,7 +6452,8 @@ static void free_gc_object(JSRuntime *rt, JSGCObjectHeader *gp)
         js_free_module_def(rt, (JSModuleDef *)gp);
         break;
     default:
-        abort();
+        JS_ThrowFatalErrorRT(rt, JS_FATAL_ERROR_INTERNAL, "free_gc_object: unhandled gc_obj_type");
+        break;
     }
 }
 
@@ -6540,7 +6542,8 @@ void __JS_FreeValueRT(JSRuntime *rt, JSValue v)
         }
         break;
     default:
-        abort();
+        JS_ThrowFatalErrorRT(rt, JS_FATAL_ERROR_INTERNAL, "__JS_FreeValueRT: unhandled tag");
+        break;
     }
 }
 
@@ -6572,7 +6575,8 @@ static void gc_remove_weak_objects(JSRuntime *rt)
             finrec_delete_weakref(rt, wh);
             break;
         default:
-            abort();
+            JS_ThrowFatalErrorRT(rt, JS_FATAL_ERROR_INTERNAL, "gc_remove_weak_objects: unhandled weakref_type");
+            break;
         }
     }
 
@@ -6724,7 +6728,8 @@ static void mark_children(JSRuntime *rt, JSGCObjectHeader *gp,
         }
         break;
     default:
-        abort();
+        JS_ThrowFatalErrorRT(rt, JS_FATAL_ERROR_INTERNAL, "mark_children: unhandled gc_obj_type");
+        break;
     }
 }
 
@@ -7905,16 +7910,35 @@ static void JS_ThrowInterrupted(JSContext *ctx)
     JS_SetUncatchableException(ctx, TRUE);
 }
 
+static void js_fatal_error_record(JSRuntime *rt, int32_t code,
+                                  const char *fmt, va_list ap)
+{
+    vsnprintf(rt->fatal_error_msg, sizeof(rt->fatal_error_msg), fmt, ap);
+    rt->fatal_error = TRUE;
+    rt->fatal_error_code = code;
+}
+
+/* Same as JS_ThrowFatalError() but for call sites that only have a
+   JSRuntime (e.g. GC internals reachable from no JSContext): records the
+   fatal state on rt without a pending JS exception. The host observes it
+   via JS_HasFatalError(rt). */
+void JS_ThrowFatalErrorRT(JSRuntime *rt, int32_t code, const char *fmt, ...)
+{
+    va_list ap;
+
+    va_start(ap, fmt);
+    js_fatal_error_record(rt, code, fmt, ap);
+    va_end(ap);
+}
+
 JSValue JS_ThrowFatalError(JSContext *ctx, int32_t code, const char *fmt, ...)
 {
     JSRuntime *rt = ctx->rt;
     va_list ap;
 
     va_start(ap, fmt);
-    vsnprintf(rt->fatal_error_msg, sizeof(rt->fatal_error_msg), fmt, ap);
+    js_fatal_error_record(rt, code, fmt, ap);
     va_end(ap);
-    rt->fatal_error = TRUE;
-    rt->fatal_error_code = code;
     JS_ThrowInternalError(ctx, "%s", rt->fatal_error_msg);
     /* uncatchable: a script-level try/catch must never be able to swallow a
        fatal engine error and keep running (which could re-trigger the same
@@ -15477,9 +15501,8 @@ static no_inline __exception int js_binary_logic_slow(JSContext *ctx,
 static JSBigInt *JS_ToBigIntBuf(JSContext *ctx, JSBigIntBuf *buf1,
                                 JSValue op1)
 {
-    JSRuntime *rt = ctx->rt;
     JSBigInt *p1;
-    
+
     switch(JS_VALUE_GET_TAG(op1)) {
     case JS_TAG_INT:
         p1 = js_bigint_set_si(buf1, JS_VALUE_GET_INT(op1));
@@ -15491,7 +15514,8 @@ static JSBigInt *JS_ToBigIntBuf(JSContext *ctx, JSBigIntBuf *buf1,
         p1 = JS_VALUE_GET_PTR(op1);
         break;
     default:
-        abort();
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "JS_ToBigIntBuf: unhandled tag");
+        return NULL;
     }
     return p1;
 }
@@ -15501,11 +15525,10 @@ static JSBigInt *JS_ToBigIntBuf(JSContext *ctx, JSBigIntBuf *buf1,
 static int js_compare_bigint(JSContext *ctx, OPCodeEnum op,
                              JSValue op1, JSValue op2)
 {
-    JSRuntime *rt = ctx->rt;
     int res, val, tag1, tag2;
     JSBigIntBuf buf1, buf2;
     JSBigInt *p1, *p2;
-    
+
     tag1 = JS_VALUE_GET_NORM_TAG(op1);
     tag2 = JS_VALUE_GET_NORM_TAG(op2);
     if ((tag1 == JS_TAG_SHORT_BIG_INT || tag1 == JS_TAG_INT) &&
@@ -15524,12 +15547,16 @@ static int js_compare_bigint(JSContext *ctx, OPCodeEnum op,
     } else {
         if (tag1 == JS_TAG_FLOAT64) {
             p2 = JS_ToBigIntBuf(ctx, &buf2, op2);
+            if (!p2)
+                goto unordered;
             val = js_bigint_float64_cmp(ctx, p2, JS_VALUE_GET_FLOAT64(op1));
             if (val == 2)
                 goto unordered;
             val = -val;
         } else if (tag2 == JS_TAG_FLOAT64) {
             p1 = JS_ToBigIntBuf(ctx, &buf1, op1);
+            if (!p1)
+                goto unordered;
             val = js_bigint_float64_cmp(ctx, p1, JS_VALUE_GET_FLOAT64(op2));
             if (val == 2) {
             unordered:
@@ -15540,6 +15567,8 @@ static int js_compare_bigint(JSContext *ctx, OPCodeEnum op,
         } else {
             p1 = JS_ToBigIntBuf(ctx, &buf1, op1);
             p2 = JS_ToBigIntBuf(ctx, &buf2, op2);
+            if (!p1 || !p2)
+                goto unordered;
             val = js_bigint_cmp(ctx, p1, p2);
         }
         JS_FreeValue(ctx, op1);
@@ -15563,7 +15592,8 @@ static int js_compare_bigint(JSContext *ctx, OPCodeEnum op,
         res = val == 0;
         break;
     default:
-        abort();
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "js_compare_bigint: unhandled op");
+        return FALSE;
     }
     return res;
 }
@@ -15661,6 +15691,8 @@ static no_inline int js_relational_slow(JSContext *ctx, JSValue *sp,
         if (tag1 == JS_TAG_BIG_INT || tag1 == JS_TAG_SHORT_BIG_INT ||
             tag2 == JS_TAG_BIG_INT || tag2 == JS_TAG_SHORT_BIG_INT) {
             res = js_compare_bigint(ctx, op, op1, op2);
+            if (JS_HasFatalError(ctx->rt))
+                goto exception;
         } else {
             double d1, d2;
 
@@ -15742,6 +15774,8 @@ static no_inline __exception int js_eq_slow(JSContext *ctx, JSValue *sp,
             res = (d1 == d2);
         } else {
             res = js_compare_bigint(ctx, OP_eq, op1, op2);
+            if (JS_HasFatalError(ctx->rt))
+                goto exception;
         }
     } else if (tag1 == tag2) {
         res = js_strict_eq2(ctx, op1, op2, JS_EQ_STRICT);
@@ -18111,7 +18145,8 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                         goto exception;
                     break;
                 default:
-                    abort();
+                    JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "OP_special_object: unhandled arg");
+                    goto exception;
                 }
             }
             BREAK;
@@ -21674,7 +21709,6 @@ static int js_async_generator_completed_return(JSContext *ctx,
 static void js_async_generator_resume_next(JSContext *ctx,
                                            JSAsyncGeneratorData *s)
 {
-    JSRuntime *rt = ctx->rt;
     JSAsyncGeneratorRequest *next;
     JSValue func_ret, value;
 
@@ -21763,12 +21797,15 @@ static void js_async_generator_resume_next(JSContext *ctx,
                     }
                     goto done;
                 default:
-                    abort();
+                    JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "js_async_generator_resume_next: unhandled func_ret_code");
+                    JS_FreeValue(ctx, value);
+                    goto done;
                 }
             }
             break;
         default:
-            abort();
+            JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "js_async_generator_resume_next: unhandled state");
+            goto done;
         }
     }
  done: ;
@@ -26189,7 +26226,6 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
                        JSAtom name, int label, PutLValueEnum special,
                        BOOL is_let)
 {
-    JSRuntime *rt = s->ctx->rt;
     switch(opcode) {
     case OP_scope_get_var:
         /* depth = 0 */
@@ -26203,7 +26239,8 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_dup);
             break;
         default:
-            abort();
+            JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "put_lvalue: unhandled special (depth 0)");
+            return;
         }
         break;
     case OP_get_field:
@@ -26223,7 +26260,8 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_swap);
             break;
         default:
-            abort();
+            JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "put_lvalue: unhandled special (depth 1)");
+            return;
         }
         break;
     case OP_get_array_el:
@@ -26249,7 +26287,8 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_rot3l);
             break;
         default:
-            abort();
+            JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "put_lvalue: unhandled special (depth 2)");
+            return;
         }
         break;
     case OP_get_super_value:
@@ -26268,7 +26307,8 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
             emit_op(s, OP_rot4l);
             break;
         default:
-            abort();
+            JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "put_lvalue: unhandled special (depth 3)");
+            return;
         }
         break;
     default:
@@ -26300,7 +26340,8 @@ static void put_lvalue(JSParseState *s, int opcode, int scope,
         emit_op(s, OP_put_super_value);
         break;
     default:
-        abort();
+        JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "put_lvalue: unhandled opcode");
+        return;
     }
 }
 
@@ -26452,7 +26493,6 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                                         int hasval, int has_ellipsis,
                                         BOOL allow_initializer, BOOL export_flag)
 {
-    JSRuntime *rt = s->ctx->rt;
     int label_parse, label_assign, label_done, label_lvalue, depth_lvalue;
     int start_addr, assign_addr;
     JSAtom prop_name, var_name;
@@ -26648,7 +26688,8 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                             emit_op(s, OP_rot5l);
                             break;
                         default:
-                            abort();
+                            JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "js_parse_destructuring_element: unhandled depth_lvalue (computed prop)");
+                            goto prop_error;
                         }
                     } else {
                         switch(depth_lvalue) {
@@ -26667,7 +26708,8 @@ static int js_parse_destructuring_element(JSParseState *s, int tok, int is_arg,
                             emit_op(s, OP_rot4l);
                             break;
                         default:
-                            abort();
+                            JS_ThrowFatalError(s->ctx, JS_FATAL_ERROR_INTERNAL, "js_parse_destructuring_element: unhandled depth_lvalue");
+                            goto prop_error;
                         }
                     }
                 }
@@ -33604,7 +33646,6 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
                                        JSAtom var_name, int scope_level, int op,
                                        DynBuf *bc)
 {
-    JSRuntime *rt = ctx->rt;
     int idx, var_kind;
     BOOL is_ref;
 
@@ -33645,7 +33686,8 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
             dbuf_putc(bc, JS_THROW_VAR_RO);
             break;
         default:
-            abort();
+            JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "resolve_scope_private_field: unhandled var_kind (get)");
+            return -1;
         }
         break;
     case OP_scope_put_private_field:
@@ -33688,7 +33730,8 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
             }
             break;
         default:
-            abort();
+            JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "resolve_scope_private_field: unhandled var_kind (put)");
+            return -1;
         }
         break;
     case OP_scope_in_private_field:
@@ -33696,7 +33739,8 @@ static int resolve_scope_private_field(JSContext *ctx, JSFunctionDef *s,
         dbuf_putc(bc, OP_private_in);
         break;
     default:
-        abort();
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "resolve_scope_private_field: unhandled op");
+        return -1;
     }
     return 0;
 }
@@ -33898,7 +33942,6 @@ static void set_closure_from_var(JSContext *ctx, JSClosureVar *cv,
 static __exception int add_closure_variables(JSContext *ctx, JSFunctionDef *s,
                                              JSFunctionBytecode *b, int scope_idx)
 {
-    JSRuntime *rt = ctx->rt;
     int i, count;
     JSBytecodeVarDef *vd;
     BOOL is_arg_scope;
@@ -33968,7 +34011,8 @@ static __exception int add_closure_variables(JSContext *ctx, JSFunctionDef *s,
         case JS_CLOSURE_GLOBAL:
             continue; /* not necessary to add global variables */
         default:
-            abort();
+            JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "add_closure_variables: unhandled closure_type");
+            return -1;
         }
         cv = &s->closure_var[s->closure_var_count++];
         cv->closure_type = JS_CLOSURE_REF;
@@ -34123,7 +34167,6 @@ static BOOL code_match(CodeContext *s, int pos, ...)
 
 static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, DynBuf *bc)
 {
-    JSRuntime *rt = ctx->rt;
     int i, idx, label_next = -1;
 
     /* add the hoisted functions in arguments and local variables */
@@ -34189,7 +34232,9 @@ static void instantiate_hoisted_definitions(JSContext *ctx, JSFunctionDef *s, Dy
                 goto closure_found;
             }
         }
-        abort();
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "instantiate_hoisted_definitions: global var not found in closure");
+        dbuf_set_error(bc);
+        return;
     closure_found:
         if (hf->cpool_idx >= 0 || force_init) {
             if (hf->cpool_idx >= 0) {
@@ -39667,7 +39712,6 @@ static int check_exception_free(JSContext *ctx, JSValue obj)
 
 static JSAtom find_atom(JSContext *ctx, const char *name)
 {
-    JSRuntime *rt = ctx->rt;
     JSAtom atom;
     int len;
 
@@ -39682,7 +39726,8 @@ static JSAtom find_atom(JSContext *ctx, const char *name)
             if (str->len == len && !memcmp(str->u.str8, name, len))
                 return JS_DupAtom(ctx, atom);
         }
-        abort();
+        JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "find_atom: symbol name not found");
+        return JS_ATOM_NULL;
     } else {
         atom = JS_NewAtom(ctx, name);
     }
@@ -39878,7 +39923,6 @@ int JS_AddModuleExportList(JSContext *ctx, JSModuleDef *m,
 int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
                            const JSCFunctionListEntry *tab, int len)
 {
-    JSRuntime *rt = ctx->rt;
     int i;
     JSValue val;
 
@@ -39906,7 +39950,8 @@ int JS_SetModuleExportList(JSContext *ctx, JSModuleDef *m,
                                         e->u.prop_list.tab, e->u.prop_list.len);
             break;
         default:
-            abort();
+            JS_ThrowFatalError(ctx, JS_FATAL_ERROR_INTERNAL, "JS_SetModuleExportList: unhandled def_type");
+            return -1;
         }
         if (JS_SetModuleExport(ctx, m, e->name, val))
             return -1;
