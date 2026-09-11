@@ -47539,11 +47539,10 @@ static const JSCFunctionListEntry js_math_obj[] = {
 /* Date */
 
 /* d = argv[0] is in ms from 1970. Return the difference between UTC time
-   and local time 'd' in minutes. OS-dependent logic lives in the PAL
-   (see quickjs-pal.c's pal_get_timezone_offset()). */
-static int getTimezoneOffset(JSRuntime *rt, int64_t time)
+   and local time 'd' in minutes. OS-dependent logic lives in the PAL. */
+static int getTimezoneOffset(int64_t time, JSPal *pal)
 {
-    return jspal_get_timezone_offset(rt->pal, time);
+    return jspal_get_timezone_offset(pal, time);
 }
 
 #if 0
@@ -47557,7 +47556,7 @@ static JSValue js___date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val
     if (isnan(dd))
         return __JS_NewFloat64(ctx, dd);
     else
-        return JS_NewInt32(ctx, getTimezoneOffset(ctx->rt, (int64_t)dd));
+        return JS_NewInt32(ctx, getTimezoneOffset((int64_t)dd, ctx->rt->pal));
 }
 
 static JSValue js_get_prototype_from_ctor(JSContext *ctx, JSValueConst ctor,
@@ -55144,7 +55143,7 @@ static __exception int get_date_fields(JSContext *ctx, JSValueConst obj,
     } else {
         d = dval;     /* assuming -8.64e15 <= dval <= -8.64e15 */
         if (is_local) {
-            tz = -getTimezoneOffset(ctx->rt, d);
+            tz = -getTimezoneOffset(d, ctx->rt->pal);
             d += tz * 60000;
         }
     }
@@ -55190,7 +55189,7 @@ static double time_clip(double t) {
 
 /* The spec mandates the use of 'double' and it specifies the order
    of the operations */
-static double set_date_fields(JSRuntime *rt, double fields[minimum_length(7)], int is_local) {
+static double set_date_fields(double fields[minimum_length(7)], int is_local, JSPal *pal) {
     double y, m, dt, ym, mn, day, h, s, milli, time, tv;
     int yi, mi, i;
     int64_t days;
@@ -55242,12 +55241,12 @@ static double set_date_fields(JSRuntime *rt, double fields[minimum_length(7)], i
     /* adjust for local time and clip */
     if (is_local) {
         int64_t ti = tv < INT64_MIN ? INT64_MIN : tv >= 0x1p63 ? INT64_MAX : (int64_t)tv;
-        tv += getTimezoneOffset(rt, ti) * 60000;
+        tv += getTimezoneOffset(ti, pal) * 60000;
     }
     return time_clip(tv);
 }
 
-static double set_date_fields_checked(JSRuntime *rt, double fields[minimum_length(7)], int is_local)
+static double set_date_fields_checked(double fields[minimum_length(7)], int is_local, JSPal *pal)
 {
     int i;
     double a;
@@ -55259,7 +55258,7 @@ static double set_date_fields_checked(JSRuntime *rt, double fields[minimum_lengt
         if (i == 0 && fields[0] >= 0 && fields[0] < 100)
             fields[0] += 1900;
     }
-    return set_date_fields(rt, fields, is_local);
+    return set_date_fields(fields, is_local, pal);
 }
 
 static JSValue get_date_field(JSContext *ctx, JSValueConst this_val,
@@ -55315,7 +55314,7 @@ static JSValue set_date_field(JSContext *ctx, JSValueConst this_val,
         return JS_NAN; /* thisTimeValue is NaN */
 
     if (res && argc > 0)
-        d = set_date_fields(ctx->rt, fields, is_local);
+        d = set_date_fields(fields, is_local, ctx->rt->pal);
 
     return JS_SetThisTimeValue(ctx, this_val, d);
 }
@@ -55488,7 +55487,7 @@ static JSValue js_date_constructor(JSContext *ctx, JSValueConst new_target,
             if (JS_ToFloat64(ctx, &fields[i], argv[i]))
                 return JS_EXCEPTION;
         }
-        val = set_date_fields_checked(ctx->rt, fields, 1);
+        val = set_date_fields_checked(fields, 1, ctx->rt->pal);
     }
 has_val:
 #if 0
@@ -55528,7 +55527,7 @@ static JSValue js_Date_UTC(JSContext *ctx, JSValueConst this_val,
         if (JS_ToFloat64(ctx, &fields[i], argv[i]))
             return JS_EXCEPTION;
     }
-    return JS_NewFloat64(ctx, set_date_fields_checked(ctx->rt, fields, 0));
+    return JS_NewFloat64(ctx, set_date_fields_checked(fields, 0, ctx->rt->pal));
 }
 
 /* Date string parsing */
@@ -55987,7 +55986,7 @@ static JSValue js_Date_parse(JSContext *ctx, JSValueConst this_val,
         if (valid) {
             for(i = 0; i < 7; i++)
                 fields1[i] = fields[i];
-            d = set_date_fields(ctx->rt, fields1, is_local) - fields[8] * 60000;
+            d = set_date_fields(fields1, is_local, ctx->rt->pal) - fields[8] * 60000;
             rv = JS_NewFloat64(ctx, d);
         }
     }
@@ -56046,7 +56045,7 @@ static JSValue js_date_getTimezoneOffset(JSContext *ctx, JSValueConst this_val,
         return JS_NAN;
     else
         /* assuming -8.64e15 <= v <= -8.64e15 */
-        return JS_NewInt64(ctx, getTimezoneOffset(ctx->rt, (int64_t)trunc(v)));
+        return JS_NewInt64(ctx, getTimezoneOffset((int64_t)trunc(v), ctx->rt->pal));
 }
 
 static JSValue js_date_getTime(JSContext *ctx, JSValueConst this_val,
