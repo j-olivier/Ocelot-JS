@@ -453,7 +453,7 @@ static int pal_thread_detach(JSPal *opaque, JSPalThread *thread)
 
 /*----------------------------------------------------------------------*/
 
-JSPalFunctions js_pal = {
+const JSPalFunctions js_pal = {
     .abort = pal_abort,
     .print_f = pal_printf,
     .get_time = pal_get_time,
@@ -481,7 +481,7 @@ JSPalFunctions js_pal = {
 /*----------------------------------------------------------------------*/
 /* atomics: plain C11 stdatomic.h wrappers, relocated out of quickjs.c.
    Not part of JSPal -- see quickjs-pal.h for the rationale. */
-
+/*
 #define PAL_ATOMIC_OPS(width, uintN_t)                                            \
     uintN_t pal_atomic##width##_load(uintN_t *ptr)                                \
     {                                                                             \
@@ -528,3 +528,40 @@ PAL_ATOMIC_OPS(32, uint32_t)
 PAL_ATOMIC_OPS(64, uint64_t)
 
 #undef PAL_ATOMIC_OPS
+*/
+uint8_t  pal_atomic_load_8(uint8_t *ptr) { return atomic_load((_Atomic(uint8_t) *)ptr); }
+uint16_t pal_atomic_load_16(uint16_t *ptr) { return atomic_load((_Atomic(uint16_t) *)ptr); }
+uint32_t pal_atomic_load_32(uint32_t *ptr) { return atomic_load((_Atomic(uint32_t) *)ptr); }
+uint64_t pal_atomic_load_64(uint64_t *ptr)  { return atomic_load((_Atomic(uint64_t) *)ptr); }
+void pal_atomic_store_8(uint8_t *ptr, uint8_t v) { atomic_store((_Atomic(uint8_t) *)ptr, v); }
+void pal_atomic_store_16(uint16_t *ptr, uint16_t v) { atomic_store((_Atomic(uint16_t) *)ptr, v); }
+void pal_atomic_store_32(uint32_t *ptr, uint32_t v) { atomic_store((_Atomic(uint32_t) *)ptr, v); }
+void pal_atomic_store_64(uint64_t *ptr, uint64_t v)  { atomic_store((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  pal_atomic_exchange_8(uint8_t *ptr, uint8_t v) { return atomic_exchange((_Atomic(uint8_t) *)ptr, v); }
+uint16_t pal_atomic_exchange_16(uint16_t *ptr, uint16_t v) { return atomic_exchange((_Atomic(uint16_t) *)ptr, v); }
+uint32_t pal_atomic_exchange_32(uint32_t *ptr, uint32_t v) { return atomic_exchange((_Atomic(uint32_t) *)ptr, v); }
+uint64_t pal_atomic_exchange_64(uint64_t *ptr, uint64_t v)  { return atomic_exchange((_Atomic(uint64_t) *)ptr, v); }
+JS_BOOL pal_atomic_compare_exchange_8(uint8_t *ptr, uint8_t *expected, uint8_t desired) { return atomic_compare_exchange_strong((_Atomic(uint8_t) *)ptr, expected, desired); }
+JS_BOOL pal_atomic_compare_exchange_16(uint16_t *ptr, uint16_t *expected, uint16_t desired) { return atomic_compare_exchange_strong((_Atomic(uint16_t) *)ptr, expected, desired); }
+JS_BOOL pal_atomic_compare_exchange_32(uint32_t *ptr, uint32_t *expected, uint32_t desired) { return atomic_compare_exchange_strong((_Atomic(uint32_t) *)ptr, expected, desired); }
+JS_BOOL pal_atomic_compare_exchange_64(uint64_t *ptr, uint64_t *expected, uint64_t desired)  { return atomic_compare_exchange_strong((_Atomic(uint64_t) *)ptr, expected, desired); }
+uint8_t  pal_atomic_fetch_add_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_add((_Atomic(uint8_t) *)ptr, v); }
+uint16_t pal_atomic_fetch_add_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_add((_Atomic(uint16_t) *)ptr, v); }
+uint32_t pal_atomic_fetch_add_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v); }
+uint64_t pal_atomic_fetch_add_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_add((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  pal_atomic_fetch_sub_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_sub((_Atomic(uint8_t) *)ptr, v); }
+uint16_t pal_atomic_fetch_sub_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_sub((_Atomic(uint16_t) *)ptr, v); }
+uint32_t pal_atomic_fetch_sub_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_sub((_Atomic(uint32_t) *)ptr, v); }
+uint64_t pal_atomic_fetch_sub_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_sub((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  pal_atomic_fetch_and_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_and((_Atomic(uint8_t) *)ptr, v); }
+uint16_t pal_atomic_fetch_and_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_and((_Atomic(uint16_t) *)ptr, v); }
+uint32_t pal_atomic_fetch_and_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_and((_Atomic(uint32_t) *)ptr, v); }
+uint64_t pal_atomic_fetch_and_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_and((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  pal_atomic_fetch_or_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_or((_Atomic(uint8_t) *)ptr, v); }
+uint16_t pal_atomic_fetch_or_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_or((_Atomic(uint16_t) *)ptr, v); }
+uint32_t pal_atomic_fetch_or_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_or((_Atomic(uint32_t) *)ptr, v); }
+uint64_t pal_atomic_fetch_or_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_or((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  pal_atomic_fetch_xor_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_xor((_Atomic(uint8_t) *)ptr, v); }
+uint16_t pal_atomic_fetch_xor_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_xor((_Atomic(uint16_t) *)ptr, v); }
+uint32_t pal_atomic_fetch_xor_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_xor((_Atomic(uint32_t) *)ptr, v); }
+uint64_t pal_atomic_fetch_xor_64(uint64_t *ptr, uint64_t v) { return atomic_fetch_xor((_Atomic(uint64_t) *)ptr, v); }

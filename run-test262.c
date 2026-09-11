@@ -152,7 +152,7 @@ void fatal(int, const char *, ...) __attribute__((__format__(__printf__, 2, 3)))
 
 void atomic_inc(uint32_t *p)
 {
-    pal_atomic32_fetch_add(p, 1);
+    pal_atomic_fetch_add_32(p, 1);
 }
 
 #if defined(_WIN32)
@@ -2165,9 +2165,9 @@ void *show_progress(void *opaque)
     for(;;) {
         pal_cond_timedwait_ms(&progress_cond, &progress_mutex, 50);
 
-        test_failed1 = pal_atomic32_load(&test_failed);
-        test_count1 = pal_atomic32_load(&test_count);
-        test_skipped1 = pal_atomic32_load(&test_skipped);
+        test_failed1 = pal_atomic_load_32(&test_failed);
+        test_count1 = pal_atomic_load_32(&test_count);
+        test_skipped1 = pal_atomic_load_32(&test_skipped);
 
         if (compact) {
             static int last_test_skipped;

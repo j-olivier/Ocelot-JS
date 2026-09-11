@@ -467,6 +467,53 @@ struct JSPalFunctions {
     int (*print_f)(JSPal *opaque, const char *format, ...) __js_printf_like(2, 3);
 };
 
+/* atomic ops backing the JS Atomics object / SharedArrayBuffer. These are
+   compiler/CPU primitives (C11 <stdatomic.h>), must be implemented by host. */
+extern uint8_t  pal_atomic_load_8(uint8_t *ptr);
+extern uint16_t pal_atomic_load_16(uint16_t *ptr);
+extern uint32_t pal_atomic_load_32(uint32_t *ptr);
+extern uint64_t pal_atomic_load_64(uint64_t *ptr);
+
+extern void pal_atomic_store_8(uint8_t *ptr, uint8_t v);
+extern void pal_atomic_store_16(uint16_t *ptr, uint16_t v);
+extern void pal_atomic_store_32(uint32_t *ptr, uint32_t v);
+extern void pal_atomic_store_64(uint64_t *ptr, uint64_t v);
+
+extern uint8_t  pal_atomic_exchange_8(uint8_t *ptr, uint8_t v);
+extern uint16_t pal_atomic_exchange_16(uint16_t *ptr, uint16_t v);
+extern uint32_t pal_atomic_exchange_32(uint32_t *ptr, uint32_t v);
+extern uint64_t pal_atomic_exchange_64(uint64_t *ptr, uint64_t v);
+
+extern JS_BOOL pal_atomic_compare_exchange_8(uint8_t *ptr, uint8_t *expected, uint8_t desired);
+extern JS_BOOL pal_atomic_compare_exchange_16(uint16_t *ptr, uint16_t *expected, uint16_t desired);
+extern JS_BOOL pal_atomic_compare_exchange_32(uint32_t *ptr, uint32_t *expected, uint32_t desired);
+extern JS_BOOL pal_atomic_compare_exchange_64(uint64_t *ptr, uint64_t *expected, uint64_t desired);
+
+extern uint8_t  pal_atomic_fetch_add_8(uint8_t *ptr, uint8_t v);
+extern uint16_t pal_atomic_fetch_add_16(uint16_t *ptr, uint16_t v);
+extern uint32_t pal_atomic_fetch_add_32(uint32_t *ptr, uint32_t v);
+extern uint64_t pal_atomic_fetch_add_64(uint64_t *ptr, uint64_t v);
+
+extern uint8_t  pal_atomic_fetch_sub_8(uint8_t *ptr, uint8_t v);
+extern uint16_t pal_atomic_fetch_sub_16(uint16_t *ptr, uint16_t v);
+extern uint32_t pal_atomic_fetch_sub_32(uint32_t *ptr, uint32_t v);
+extern uint64_t pal_atomic_fetch_sub_64(uint64_t *ptr, uint64_t v);
+
+extern uint8_t  pal_atomic_fetch_and_8(uint8_t *ptr, uint8_t v);
+extern uint16_t pal_atomic_fetch_and_16(uint16_t *ptr, uint16_t v);
+extern uint32_t pal_atomic_fetch_and_32(uint32_t *ptr, uint32_t v);
+extern uint64_t pal_atomic_fetch_and_64(uint64_t *ptr, uint64_t v);
+
+extern uint8_t  pal_atomic_fetch_or_8(uint8_t *ptr, uint8_t v);
+extern uint16_t pal_atomic_fetch_or_16(uint16_t *ptr, uint16_t v);
+extern uint32_t pal_atomic_fetch_or_32(uint32_t *ptr, uint32_t v);
+extern uint64_t pal_atomic_fetch_or_64(uint64_t *ptr, uint64_t v);
+
+extern uint8_t  pal_atomic_fetch_xor_8(uint8_t *ptr, uint8_t v);
+extern uint16_t pal_atomic_fetch_xor_16(uint16_t *ptr, uint16_t v);
+extern uint32_t pal_atomic_fetch_xor_32(uint32_t *ptr, uint32_t v);
+extern uint64_t pal_atomic_fetch_xor_64(uint64_t *ptr, uint64_t v);
+
 JSRuntime *JS_NewRuntime(void);
 /* info lifetime must exceed that of rt */
 void JS_SetRuntimeInfo(JSRuntime *rt, const char *info);

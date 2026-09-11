@@ -38,11 +38,6 @@
 #include "dtoa.h"
 #include "quickjs-pal.h"
 
-/* the engine's own default PAL, defined in quickjs-pal.c. Not declared in
-   quickjs-pal.h -- host code must go through JS_GetRuntimePal() instead of
-   reaching for this global directly. Only used below as JS_NewRuntimePal's
-   default-PAL fallback when a JSRuntime is created without a custom one. */
-extern JSPalFunctions js_pal;
 // PAL redirections
 #define fprintf(pal, ...) pal->print_f(pal->opaque, __VA_ARGS__)
 #define printf(...) rt->pal.print_f(rt->pal.opaque, __VA_ARGS__)
@@ -3841,13 +3836,13 @@ static void js_pal_mutex_lazy_init(const JSPalFunctions *pal, JSPalMutex *mutex,
 {
     uint32_t expected;
     for (;;) {
-        expected = pal_atomic32_load(state);
+        expected = pal_atomic_load_32(state);
         if (expected == 2)
             return;
         if (expected == 0 &&
-            pal_atomic32_compare_exchange(state, &expected, 1)) {
+            pal_atomic_compare_exchange_32(state, &expected, 1)) {
             pal->mutex_init(pal->opaque, mutex);
-            pal_atomic32_store(state, 2);
+            pal_atomic_store_32(state, 2);
             return;
         }
     }
@@ -60683,16 +60678,16 @@ static JSValue js_atomics_op(JSContext *ctx,
 
 #define OP(op_name, func_name)                            \
     case ATOMICS_OP_ ## op_name | (0 << 3):               \
-       a = pal_atomic8_ ## func_name((uint8_t *)ptr, v);  \
+       a = pal_atomic_ ## func_name ## _8((uint8_t *)ptr, v);  \
        break;                                             \
     case ATOMICS_OP_ ## op_name | (1 << 3):                 \
-        a = pal_atomic16_ ## func_name((uint16_t *)ptr, v); \
+        a = pal_atomic_ ## func_name ## _16((uint16_t *)ptr, v); \
         break;                                               \
     case ATOMICS_OP_ ## op_name | (2 << 3):                 \
-        a = pal_atomic32_ ## func_name((uint32_t *)ptr, v); \
+        a = pal_atomic_ ## func_name ## _32((uint32_t *)ptr, v); \
         break;                                               \
     case ATOMICS_OP_ ## op_name | (3 << 3):                 \
-        a = pal_atomic64_ ## func_name((uint64_t *)ptr, v); \
+        a = pal_atomic_ ## func_name ## _64((uint64_t *)ptr, v); \
         break;
 
         OP(ADD, fetch_add)
@@ -60704,43 +60699,43 @@ static JSValue js_atomics_op(JSContext *ctx,
 #undef OP
 
     case ATOMICS_OP_LOAD | (0 << 3):
-        a = pal_atomic8_load((uint8_t *)ptr);
+        a = pal_atomic_load_8((uint8_t *)ptr);
         break;
     case ATOMICS_OP_LOAD | (1 << 3):
-        a = pal_atomic16_load((uint16_t *)ptr);
+        a = pal_atomic_load_16((uint16_t *)ptr);
         break;
     case ATOMICS_OP_LOAD | (2 << 3):
-        a = pal_atomic32_load((uint32_t *)ptr);
+        a = pal_atomic_load_32((uint32_t *)ptr);
         break;
     case ATOMICS_OP_LOAD | (3 << 3):
-        a = pal_atomic64_load((uint64_t *)ptr);
+        a = pal_atomic_load_64((uint64_t *)ptr);
         break;
 
     case ATOMICS_OP_COMPARE_EXCHANGE | (0 << 3):
         {
             uint8_t v1 = v;
-            pal_atomic8_compare_exchange((uint8_t *)ptr, &v1, rep_val);
+            pal_atomic_compare_exchange_8((uint8_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     case ATOMICS_OP_COMPARE_EXCHANGE | (1 << 3):
         {
             uint16_t v1 = v;
-            pal_atomic16_compare_exchange((uint16_t *)ptr, &v1, rep_val);
+            pal_atomic_compare_exchange_16((uint16_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     case ATOMICS_OP_COMPARE_EXCHANGE | (2 << 3):
         {
             uint32_t v1 = v;
-            pal_atomic32_compare_exchange((uint32_t *)ptr, &v1, rep_val);
+            pal_atomic_compare_exchange_32((uint32_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
     case ATOMICS_OP_COMPARE_EXCHANGE | (3 << 3):
         {
             uint64_t v1 = v;
-            pal_atomic64_compare_exchange((uint64_t *)ptr, &v1, rep_val);
+            pal_atomic_compare_exchange_64((uint64_t *)ptr, &v1, rep_val);
             a = v1;
         }
         break;
@@ -60825,16 +60820,16 @@ static JSValue js_atomics_store(JSContext *ctx,
     
     switch(size_log2) {
     case 0:
-        pal_atomic8_store((uint8_t *)ptr, v);
+        pal_atomic_store_8((uint8_t *)ptr, v);
         break;
     case 1:
-        pal_atomic16_store((uint16_t *)ptr, v);
+        pal_atomic_store_16((uint16_t *)ptr, v);
         break;
     case 2:
-        pal_atomic32_store((uint32_t *)ptr, v);
+        pal_atomic_store_32((uint32_t *)ptr, v);
         break;
     case 3:
-        pal_atomic64_store((uint64_t *)ptr, v);
+        pal_atomic_store_64((uint64_t *)ptr, v);
         break;
     default:
         abort();

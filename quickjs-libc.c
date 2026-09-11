@@ -3379,7 +3379,7 @@ static JSContext *(*js_worker_new_context_func)(JSRuntime *rt);
 
 static int atomic_add_int(int *ptr, int v)
 {
-    return pal_atomic32_fetch_add((uint32_t *)ptr, v) + v;
+    return pal_atomic_fetch_add_32((uint32_t *)ptr, v) + v;
 }
 
 /* shared array buffer allocator */
