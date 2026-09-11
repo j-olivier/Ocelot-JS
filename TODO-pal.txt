@@ -2,6 +2,7 @@
 * rename to quickjs-pal before forking to Ocelot (or another)
 * js_abort() => pal->abort()
 
+- exec update with return value => YIELD_JS, YIELD_TIMEOUT, WAIT_ATOMIC, 0 (nothing to do anymore), 1..N (next update in N milliseconds)
 - abort gracefully with a corresponding error messages
 
 - avoid using alloca => will require temp buffer ... which size ? what of very large argument count ?
