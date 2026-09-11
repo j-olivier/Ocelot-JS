@@ -2142,17 +2142,15 @@ static JSValue js_os_signal(JSContext *ctx, JSValueConst this_val,
 
 static int64_t get_time_ms(JSRuntime *rt)
 {
-    const JSPalFunctions *pal = JS_GetRuntimePal(rt);
     JSPalTime t;
-    pal->get_time_monotonic(pal->opaque, &t);
+    jspal_get_time_monotonic(JS_GetRuntimePal(rt), &t);
     return (int64_t)t.sec * 1000 + t.usec / 1000;
 }
 
 static int64_t get_time_ns(JSRuntime *rt)
 {
-    const JSPalFunctions *pal = JS_GetRuntimePal(rt);
     JSPalTime t;
-    pal->get_time_monotonic(pal->opaque, &t);
+    jspal_get_time_monotonic(JS_GetRuntimePal(rt), &t);
     return (int64_t)t.sec * 1000000000 + t.usec * 1000;
 }
 
@@ -2354,14 +2352,14 @@ static void js_free_message(JSWorkerMessage *msg);
 static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
                                  JSWorkerMessageHandler *port)
 {
-    const JSPalFunctions *pal = JS_GetRuntimePal(rt);
+    JSPal *pal = JS_GetRuntimePal(rt);
     JSWorkerMessagePipe *ps = port->recv_pipe;
     int ret;
     struct list_head *el;
     JSWorkerMessage *msg;
     JSValue obj, data_obj, func, retval;
 
-    pal->mutex_lock(pal->opaque, &ps->mutex);
+    jspal_mutex_lock(pal, &ps->mutex);
     if (!list_empty(&ps->msg_queue)) {
         el = ps->msg_queue.next;
         msg = list_entry(el, JSWorkerMessage, link);
@@ -2372,7 +2370,7 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
         if (list_empty(&ps->msg_queue))
             js_waker_clear(&ps->waker);
 
-        pal->mutex_unlock(pal->opaque, &ps->mutex);
+        jspal_mutex_unlock(pal, &ps->mutex);
 
         data_obj = JS_ReadObject(ctx, msg->data, msg->data_len,
                                  JS_READ_OBJ_SAB | JS_READ_OBJ_REFERENCE);
@@ -2402,7 +2400,7 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
         }
         ret = 1;
     } else {
-        pal->mutex_unlock(pal->opaque, &ps->mutex);
+        jspal_mutex_unlock(pal, &ps->mutex);
         ret = 0;
     }
     return ret;
@@ -3379,7 +3377,7 @@ static JSContext *(*js_worker_new_context_func)(JSRuntime *rt);
 
 static int atomic_add_int(int *ptr, int v)
 {
-    return pal_atomic_fetch_add_32((uint32_t *)ptr, v) + v;
+    return jspal_atomic_fetch_add_32((uint32_t *)ptr, v) + v;
 }
 
 /* shared array buffer allocator */
@@ -3414,7 +3412,7 @@ static void js_sab_dup(void *opaque, void *ptr)
 
 static JSWorkerMessagePipe *js_new_message_pipe(JSRuntime *rt)
 {
-    const JSPalFunctions *pal = JS_GetRuntimePal(rt);
+    JSPal *pal = JS_GetRuntimePal(rt);
     JSWorkerMessagePipe *ps;
 
     ps = malloc(sizeof(*ps));
@@ -3426,7 +3424,7 @@ static JSWorkerMessagePipe *js_new_message_pipe(JSRuntime *rt)
     }
     ps->ref_count = 1;
     init_list_head(&ps->msg_queue);
-    pal->mutex_init(pal->opaque, &ps->mutex);
+    jspal_mutex_init(pal, &ps->mutex);
     return ps;
 }
 
@@ -3450,7 +3448,6 @@ static void js_free_message(JSWorkerMessage *msg)
 
 static void js_free_message_pipe(JSRuntime *rt, JSWorkerMessagePipe *ps)
 {
-    const JSPalFunctions *pal;
     struct list_head *el, *el1;
     JSWorkerMessage *msg;
     int ref_count;
@@ -3465,8 +3462,7 @@ static void js_free_message_pipe(JSRuntime *rt, JSWorkerMessagePipe *ps)
             msg = list_entry(el, JSWorkerMessage, link);
             js_free_message(msg);
         }
-        pal = JS_GetRuntimePal(rt);
-        pal->mutex_destroy(pal->opaque, &ps->mutex);
+        jspal_mutex_destroy(JS_GetRuntimePal(rt), &ps->mutex);
         js_waker_close(&ps->waker);
         free(ps);
     }
@@ -3650,14 +3646,14 @@ static JSValue js_worker_ctor(JSContext *ctx, JSValueConst new_target,
         goto fail;
 
     {
-        const JSPalFunctions *pal = JS_GetRuntimePal(rt);
-        ret = pal->thread_create(pal->opaque, &tid, worker_func, args, 0);
+        JSPal *pal = JS_GetRuntimePal(rt);
+        ret = jspal_thread_create(pal, &tid, worker_func, args, 0);
         if (ret != 0) {
             JS_ThrowTypeError(ctx, "could not create worker");
             goto fail;
         }
         /* no join at the end */
-        pal->thread_detach(pal->opaque, &tid);
+        jspal_thread_detach(pal, &tid);
     }
     JS_FreeCString(ctx, basename);
     JS_FreeCString(ctx, filename);
@@ -3728,13 +3724,13 @@ static JSValue js_worker_postMessage(JSContext *ctx, JSValueConst this_val,
 
     ps = worker->send_pipe;
     {
-        const JSPalFunctions *pal = JS_GetRuntimePal(JS_GetRuntime(ctx));
-        pal->mutex_lock(pal->opaque, &ps->mutex);
+        JSPal *pal = JS_GetRuntimePal(JS_GetRuntime(ctx));
+        jspal_mutex_lock(pal, &ps->mutex);
         /* indicate that data is present */
         if (list_empty(&ps->msg_queue))
             js_waker_signal(&ps->waker);
         list_add_tail(&msg->link, &ps->msg_queue);
-        pal->mutex_unlock(pal->opaque, &ps->mutex);
+        jspal_mutex_unlock(pal, &ps->mutex);
     }
     return JS_UNDEFINED;
  fail:

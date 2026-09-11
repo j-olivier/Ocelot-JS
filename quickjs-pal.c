@@ -68,9 +68,7 @@
 /*----------------------------------------------------------------------*/
 /* panic */
 
-static void pal_abort(JSPal *opaque) __attribute__((noreturn));
-
-static void pal_abort(JSPal *opaque)
+void jspal_abort(JSPal *opaque)
 {
     (void)opaque;
     abort();
@@ -79,7 +77,7 @@ static void pal_abort(JSPal *opaque)
 /*----------------------------------------------------------------------*/
 /* debug output */
 
-static int pal_printf(JSPal *opaque, const char *format, ...)
+int jspal_printf(JSPal *opaque, const char *format, ...)
 {
     va_list ap;
     int ret;
@@ -94,7 +92,7 @@ static int pal_printf(JSPal *opaque, const char *format, ...)
 /*----------------------------------------------------------------------*/
 /* time */
 
-static void pal_get_time(JSPal *opaque, JSPalTime *t)
+void jspal_get_time(JSPal *opaque, JSPalTime *t)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -118,7 +116,7 @@ static void pal_get_time(JSPal *opaque, JSPalTime *t)
 #endif
 }
 
-static void pal_get_time_monotonic(JSPal *opaque, JSPalTime *t)
+void jspal_get_time_monotonic(JSPal *opaque, JSPalTime *t)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -142,7 +140,7 @@ static void pal_get_time_monotonic(JSPal *opaque, JSPalTime *t)
    time (ms since epoch), matching JS Date.prototype.getTimezoneOffset()
    sign conventions. This is a verbatim relocation of the pre-PAL
    getTimezoneOffset() that used to live in quickjs.c. */
-static int pal_get_timezone_offset(JSPal *opaque, int64_t time)
+int jspal_get_timezone_offset(JSPal *opaque, int64_t time)
 {
     (void)opaque;
     time_t ti;
@@ -201,25 +199,25 @@ static int pal_get_timezone_offset(JSPal *opaque, int64_t time)
 /* memory allocator, backing the default JSMallocFunctions impl only (see
    the comment above JSPalTime in quickjs.h) */
 
-static void *pal_memory_malloc(JSPal *opaque, size_t size)
+void *jspal_malloc(JSPal *opaque, size_t size)
 {
     (void)opaque;
     return malloc(size);
 }
 
-static void pal_memory_free(JSPal *opaque, void *ptr)
+void jspal_free(JSPal *opaque, void *ptr)
 {
     (void)opaque;
     free(ptr);
 }
 
-static void *pal_memory_realloc(JSPal *opaque, void *ptr, size_t size)
+void *jspal_realloc(JSPal *opaque, void *ptr, size_t size)
 {
     (void)opaque;
     return realloc(ptr, size);
 }
 
-static size_t pal_memory_malloc_usable_size(JSPal *opaque, const void *ptr)
+size_t jspal_malloc_usable_size(JSPal *opaque, const void *ptr)
 {
     (void)opaque;
 #if defined(__APPLE__)
@@ -255,7 +253,7 @@ static_assert(sizeof(pthread_t) <= sizeof(JSPalThread),
               "pthread_t too big for JSPalThread");
 #endif
 
-static void pal_mutex_init(JSPal *opaque, JSPalMutex *mutex)
+void jspal_mutex_init(JSPal *opaque, JSPalMutex *mutex)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -265,7 +263,7 @@ static void pal_mutex_init(JSPal *opaque, JSPalMutex *mutex)
 #endif
 }
 
-static void pal_mutex_destroy(JSPal *opaque, JSPalMutex *mutex)
+void jspal_mutex_destroy(JSPal *opaque, JSPalMutex *mutex)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -276,7 +274,7 @@ static void pal_mutex_destroy(JSPal *opaque, JSPalMutex *mutex)
 #endif
 }
 
-static void pal_mutex_lock(JSPal *opaque, JSPalMutex *mutex)
+void jspal_mutex_lock(JSPal *opaque, JSPalMutex *mutex)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -286,7 +284,7 @@ static void pal_mutex_lock(JSPal *opaque, JSPalMutex *mutex)
 #endif
 }
 
-static void pal_mutex_unlock(JSPal *opaque, JSPalMutex *mutex)
+void jspal_mutex_unlock(JSPal *opaque, JSPalMutex *mutex)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -296,7 +294,7 @@ static void pal_mutex_unlock(JSPal *opaque, JSPalMutex *mutex)
 #endif
 }
 
-static void pal_cond_init(JSPal *opaque, JSPalCond *cond)
+void jspal_cond_init(JSPal *opaque, JSPalCond *cond)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -306,7 +304,7 @@ static void pal_cond_init(JSPal *opaque, JSPalCond *cond)
 #endif
 }
 
-static void pal_cond_destroy(JSPal *opaque, JSPalCond *cond)
+void jspal_cond_destroy(JSPal *opaque, JSPalCond *cond)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -317,7 +315,7 @@ static void pal_cond_destroy(JSPal *opaque, JSPalCond *cond)
 #endif
 }
 
-static void pal_cond_wait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex)
+void jspal_cond_wait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -327,14 +325,14 @@ static void pal_cond_wait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex)
 #endif
 }
 
-static int pal_cond_timedwait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime)
+int jspal_cond_timedwait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex, const JSPalTime *abstime)
 {
 #if QJS_MSVC
     JSPalTime now;
     int64_t delta_ms;
     DWORD timeout_ms;
 
-    pal_get_time(opaque, &now);
+    jspal_get_time(opaque, &now);
     delta_ms = (abstime->sec - now.sec) * 1000 + (abstime->usec - now.usec) / 1000;
     timeout_ms = delta_ms > 0 ? (DWORD)delta_ms : 0;
     if (SleepConditionVariableSRW((PCONDITION_VARIABLE)cond, (PSRWLOCK)mutex, timeout_ms, 0))
@@ -349,7 +347,7 @@ static int pal_cond_timedwait(JSPal *opaque, JSPalCond *cond, JSPalMutex *mutex,
 #endif
 }
 
-static void pal_cond_signal(JSPal *opaque, JSPalCond *cond)
+void jspal_cond_signal(JSPal *opaque, JSPalCond *cond)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -359,7 +357,7 @@ static void pal_cond_signal(JSPal *opaque, JSPalCond *cond)
 #endif
 }
 
-static void pal_cond_broadcast(JSPal *opaque, JSPalCond *cond)
+void jspal_cond_broadcast(JSPal *opaque, JSPalCond *cond)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -392,7 +390,7 @@ static DWORD WINAPI pal_thread_trampoline(LPVOID param)
 }
 #endif
 
-static int pal_thread_create(JSPal *opaque, JSPalThread *thread, void *(*start)(void *arg), void *arg,
+int jspal_thread_create(JSPal *opaque, JSPalThread *thread, void *(*start)(void *arg), void *arg,
                               size_t stack_size)
 {
     (void)opaque;
@@ -425,7 +423,7 @@ static int pal_thread_create(JSPal *opaque, JSPalThread *thread, void *(*start)(
 #endif
 }
 
-static int pal_thread_join(JSPal *opaque, JSPalThread *thread)
+int jspal_thread_join(JSPal *opaque, JSPalThread *thread)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -438,7 +436,7 @@ static int pal_thread_join(JSPal *opaque, JSPalThread *thread)
 #endif
 }
 
-static int pal_thread_detach(JSPal *opaque, JSPalThread *thread)
+int jspal_thread_detach(JSPal *opaque, JSPalThread *thread)
 {
     (void)opaque;
 #if QJS_MSVC
@@ -451,34 +449,6 @@ static int pal_thread_detach(JSPal *opaque, JSPalThread *thread)
 #endif
 }
 
-/*----------------------------------------------------------------------*/
-
-const JSPalFunctions js_pal = {
-    .abort = pal_abort,
-    .print_f = pal_printf,
-    .get_time = pal_get_time,
-    .get_time_monotonic = pal_get_time_monotonic,
-    .get_timezone_offset = pal_get_timezone_offset,
-    .memory_malloc = pal_memory_malloc,
-    .memory_free = pal_memory_free,
-    .memory_realloc = pal_memory_realloc,
-    .memory_malloc_usable_size = pal_memory_malloc_usable_size,
-    .mutex_init = pal_mutex_init,
-    .mutex_destroy = pal_mutex_destroy,
-    .mutex_lock = pal_mutex_lock,
-    .mutex_unlock = pal_mutex_unlock,
-    .cond_init = pal_cond_init,
-    .cond_destroy = pal_cond_destroy,
-    .cond_wait = pal_cond_wait,
-    .cond_timedwait = pal_cond_timedwait,
-    .cond_signal = pal_cond_signal,
-    .cond_broadcast = pal_cond_broadcast,
-    .thread_create = pal_thread_create,
-    .thread_join = pal_thread_join,
-    .thread_detach = pal_thread_detach,
-};
-
-/*----------------------------------------------------------------------*/
 /* atomics: plain C11 stdatomic.h wrappers, relocated out of quickjs.c.
    Not part of JSPal -- see quickjs-pal.h for the rationale. */
 /*
@@ -529,39 +499,39 @@ PAL_ATOMIC_OPS(64, uint64_t)
 
 #undef PAL_ATOMIC_OPS
 */
-uint8_t  pal_atomic_load_8(uint8_t *ptr) { return atomic_load((_Atomic(uint8_t) *)ptr); }
-uint16_t pal_atomic_load_16(uint16_t *ptr) { return atomic_load((_Atomic(uint16_t) *)ptr); }
-uint32_t pal_atomic_load_32(uint32_t *ptr) { return atomic_load((_Atomic(uint32_t) *)ptr); }
-uint64_t pal_atomic_load_64(uint64_t *ptr)  { return atomic_load((_Atomic(uint64_t) *)ptr); }
-void pal_atomic_store_8(uint8_t *ptr, uint8_t v) { atomic_store((_Atomic(uint8_t) *)ptr, v); }
-void pal_atomic_store_16(uint16_t *ptr, uint16_t v) { atomic_store((_Atomic(uint16_t) *)ptr, v); }
-void pal_atomic_store_32(uint32_t *ptr, uint32_t v) { atomic_store((_Atomic(uint32_t) *)ptr, v); }
-void pal_atomic_store_64(uint64_t *ptr, uint64_t v)  { atomic_store((_Atomic(uint64_t) *)ptr, v); }
-uint8_t  pal_atomic_exchange_8(uint8_t *ptr, uint8_t v) { return atomic_exchange((_Atomic(uint8_t) *)ptr, v); }
-uint16_t pal_atomic_exchange_16(uint16_t *ptr, uint16_t v) { return atomic_exchange((_Atomic(uint16_t) *)ptr, v); }
-uint32_t pal_atomic_exchange_32(uint32_t *ptr, uint32_t v) { return atomic_exchange((_Atomic(uint32_t) *)ptr, v); }
-uint64_t pal_atomic_exchange_64(uint64_t *ptr, uint64_t v)  { return atomic_exchange((_Atomic(uint64_t) *)ptr, v); }
-JS_BOOL pal_atomic_compare_exchange_8(uint8_t *ptr, uint8_t *expected, uint8_t desired) { return atomic_compare_exchange_strong((_Atomic(uint8_t) *)ptr, expected, desired); }
-JS_BOOL pal_atomic_compare_exchange_16(uint16_t *ptr, uint16_t *expected, uint16_t desired) { return atomic_compare_exchange_strong((_Atomic(uint16_t) *)ptr, expected, desired); }
-JS_BOOL pal_atomic_compare_exchange_32(uint32_t *ptr, uint32_t *expected, uint32_t desired) { return atomic_compare_exchange_strong((_Atomic(uint32_t) *)ptr, expected, desired); }
-JS_BOOL pal_atomic_compare_exchange_64(uint64_t *ptr, uint64_t *expected, uint64_t desired)  { return atomic_compare_exchange_strong((_Atomic(uint64_t) *)ptr, expected, desired); }
-uint8_t  pal_atomic_fetch_add_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_add((_Atomic(uint8_t) *)ptr, v); }
-uint16_t pal_atomic_fetch_add_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_add((_Atomic(uint16_t) *)ptr, v); }
-uint32_t pal_atomic_fetch_add_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v); }
-uint64_t pal_atomic_fetch_add_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_add((_Atomic(uint64_t) *)ptr, v); }
-uint8_t  pal_atomic_fetch_sub_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_sub((_Atomic(uint8_t) *)ptr, v); }
-uint16_t pal_atomic_fetch_sub_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_sub((_Atomic(uint16_t) *)ptr, v); }
-uint32_t pal_atomic_fetch_sub_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_sub((_Atomic(uint32_t) *)ptr, v); }
-uint64_t pal_atomic_fetch_sub_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_sub((_Atomic(uint64_t) *)ptr, v); }
-uint8_t  pal_atomic_fetch_and_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_and((_Atomic(uint8_t) *)ptr, v); }
-uint16_t pal_atomic_fetch_and_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_and((_Atomic(uint16_t) *)ptr, v); }
-uint32_t pal_atomic_fetch_and_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_and((_Atomic(uint32_t) *)ptr, v); }
-uint64_t pal_atomic_fetch_and_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_and((_Atomic(uint64_t) *)ptr, v); }
-uint8_t  pal_atomic_fetch_or_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_or((_Atomic(uint8_t) *)ptr, v); }
-uint16_t pal_atomic_fetch_or_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_or((_Atomic(uint16_t) *)ptr, v); }
-uint32_t pal_atomic_fetch_or_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_or((_Atomic(uint32_t) *)ptr, v); }
-uint64_t pal_atomic_fetch_or_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_or((_Atomic(uint64_t) *)ptr, v); }
-uint8_t  pal_atomic_fetch_xor_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_xor((_Atomic(uint8_t) *)ptr, v); }
-uint16_t pal_atomic_fetch_xor_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_xor((_Atomic(uint16_t) *)ptr, v); }
-uint32_t pal_atomic_fetch_xor_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_xor((_Atomic(uint32_t) *)ptr, v); }
-uint64_t pal_atomic_fetch_xor_64(uint64_t *ptr, uint64_t v) { return atomic_fetch_xor((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  jspal_atomic_load_8(uint8_t *ptr) { return atomic_load((_Atomic(uint8_t) *)ptr); }
+uint16_t jspal_atomic_load_16(uint16_t *ptr) { return atomic_load((_Atomic(uint16_t) *)ptr); }
+uint32_t jspal_atomic_load_32(uint32_t *ptr) { return atomic_load((_Atomic(uint32_t) *)ptr); }
+uint64_t jspal_atomic_load_64(uint64_t *ptr)  { return atomic_load((_Atomic(uint64_t) *)ptr); }
+void jspal_atomic_store_8(uint8_t *ptr, uint8_t v) { atomic_store((_Atomic(uint8_t) *)ptr, v); }
+void jspal_atomic_store_16(uint16_t *ptr, uint16_t v) { atomic_store((_Atomic(uint16_t) *)ptr, v); }
+void jspal_atomic_store_32(uint32_t *ptr, uint32_t v) { atomic_store((_Atomic(uint32_t) *)ptr, v); }
+void jspal_atomic_store_64(uint64_t *ptr, uint64_t v)  { atomic_store((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  jspal_atomic_exchange_8(uint8_t *ptr, uint8_t v) { return atomic_exchange((_Atomic(uint8_t) *)ptr, v); }
+uint16_t jspal_atomic_exchange_16(uint16_t *ptr, uint16_t v) { return atomic_exchange((_Atomic(uint16_t) *)ptr, v); }
+uint32_t jspal_atomic_exchange_32(uint32_t *ptr, uint32_t v) { return atomic_exchange((_Atomic(uint32_t) *)ptr, v); }
+uint64_t jspal_atomic_exchange_64(uint64_t *ptr, uint64_t v)  { return atomic_exchange((_Atomic(uint64_t) *)ptr, v); }
+JS_BOOL jspal_atomic_compare_exchange_8(uint8_t *ptr, uint8_t *expected, uint8_t desired) { return atomic_compare_exchange_strong((_Atomic(uint8_t) *)ptr, expected, desired); }
+JS_BOOL jspal_atomic_compare_exchange_16(uint16_t *ptr, uint16_t *expected, uint16_t desired) { return atomic_compare_exchange_strong((_Atomic(uint16_t) *)ptr, expected, desired); }
+JS_BOOL jspal_atomic_compare_exchange_32(uint32_t *ptr, uint32_t *expected, uint32_t desired) { return atomic_compare_exchange_strong((_Atomic(uint32_t) *)ptr, expected, desired); }
+JS_BOOL jspal_atomic_compare_exchange_64(uint64_t *ptr, uint64_t *expected, uint64_t desired)  { return atomic_compare_exchange_strong((_Atomic(uint64_t) *)ptr, expected, desired); }
+uint8_t  jspal_atomic_fetch_add_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_add((_Atomic(uint8_t) *)ptr, v); }
+uint16_t jspal_atomic_fetch_add_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_add((_Atomic(uint16_t) *)ptr, v); }
+uint32_t jspal_atomic_fetch_add_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v); }
+uint64_t jspal_atomic_fetch_add_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_add((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  jspal_atomic_fetch_sub_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_sub((_Atomic(uint8_t) *)ptr, v); }
+uint16_t jspal_atomic_fetch_sub_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_sub((_Atomic(uint16_t) *)ptr, v); }
+uint32_t jspal_atomic_fetch_sub_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_sub((_Atomic(uint32_t) *)ptr, v); }
+uint64_t jspal_atomic_fetch_sub_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_sub((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  jspal_atomic_fetch_and_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_and((_Atomic(uint8_t) *)ptr, v); }
+uint16_t jspal_atomic_fetch_and_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_and((_Atomic(uint16_t) *)ptr, v); }
+uint32_t jspal_atomic_fetch_and_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_and((_Atomic(uint32_t) *)ptr, v); }
+uint64_t jspal_atomic_fetch_and_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_and((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  jspal_atomic_fetch_or_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_or((_Atomic(uint8_t) *)ptr, v); }
+uint16_t jspal_atomic_fetch_or_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_or((_Atomic(uint16_t) *)ptr, v); }
+uint32_t jspal_atomic_fetch_or_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_or((_Atomic(uint32_t) *)ptr, v); }
+uint64_t jspal_atomic_fetch_or_64(uint64_t *ptr, uint64_t v)  { return atomic_fetch_or((_Atomic(uint64_t) *)ptr, v); }
+uint8_t  jspal_atomic_fetch_xor_8(uint8_t *ptr, uint8_t v) { return atomic_fetch_xor((_Atomic(uint8_t) *)ptr, v); }
+uint16_t jspal_atomic_fetch_xor_16(uint16_t *ptr, uint16_t v) { return atomic_fetch_xor((_Atomic(uint16_t) *)ptr, v); }
+uint32_t jspal_atomic_fetch_xor_32(uint32_t *ptr, uint32_t v) { return atomic_fetch_xor((_Atomic(uint32_t) *)ptr, v); }
+uint64_t jspal_atomic_fetch_xor_64(uint64_t *ptr, uint64_t v) { return atomic_fetch_xor((_Atomic(uint64_t) *)ptr, v); }

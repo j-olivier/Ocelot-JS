@@ -31,12 +31,6 @@
 extern "C" {
 #endif
 
-/* the engine's default PAL, defined in quickjs-pal.c. runtime 
-   code must go through JS_GetRuntimePal() instead of
-   reaching for this global directly. Only used as JS_NewRuntimePal's
-   default-PAL fallback when a JSRuntime is created without a custom one. */
-extern const JSPalFunctions js_pal;
-
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
