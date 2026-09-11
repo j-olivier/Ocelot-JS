@@ -3829,15 +3829,13 @@ static inline BOOL JS_IsEmptyString(JSValueConst v)
 /* JSClass support */
 
 #ifdef CONFIG_ATOMICS
-/* One-time lazy init for a process-global JSPalMutex: JSPalMutex's host
-   representation is opaque (see quickjs-pal.h), so it cannot be statically
-   pre-initialized the way PTHREAD_MUTEX_INITIALIZER could. This -- and the
-   mutex it guards below -- protects state shared across every JSRuntime/
-   thread in the process, but is initialized/locked through whichever
-   JSRuntime's PAL the caller supplies (see JS_NewClassID) rather than the
-   engine's default js_pal. Every JSRuntime that can reach this mutex must
-   therefore use PAL implementations with mutually compatible mutex/cond
-   representations -- in practice, the same PAL implementation. */
+/* One-time lazy init for the process-global class-id mutex below. It
+   protects state shared across every JSRuntime/thread in the process, so
+   it is not owned by any one JSRuntime; instead it is initialized through
+   whichever JSRuntime's PAL first reaches it (the caller-supplied pal, see
+   JS_NewClassID). Every JSRuntime that can reach this mutex must therefore
+   use PAL implementations with mutually compatible mutex representations --
+   in practice, the same PAL implementation. */
 static void js_pal_mutex_lazy_init(JSPal *pal, pthread_mutex_t *mutex, uint32_t *state)
 {
     uint32_t expected;
