@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{BEC1ABA6-8383-4019-86AC-7E2689D3A56F}</ProjectGuid>
+    <RootNamespace>libquickjs</RootNamespace>
+    <ProjectName>libquickjs</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>ClangCL</PlatformToolset>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <PlatformToolset>ClangCL</PlatformToolset>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="quickjs-common.props" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="quickjs-common.props" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_CRT_NONSTDC_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Lib>
+      <AdditionalDependencies>$(VsInstallRoot)\VC\Tools\Llvm\x64\lib\clang\$(LLVMIncludeVersion)\lib\windows\clang_rt.builtins-x86_64.lib</AdditionalDependencies>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Lib>
+      <AdditionalDependencies>$(VsInstallRoot)\VC\Tools\Llvm\x64\lib\clang\$(LLVMIncludeVersion)\lib\windows\clang_rt.builtins-x86_64.lib</AdditionalDependencies>
+    </Lib>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="quickjs.c" />
+    <ClCompile Include="quickjs-pal.c" />
+    <ClCompile Include="dtoa.c" />
+    <ClCompile Include="libregexp.c" />
+    <ClCompile Include="libunicode.c" />
+    <ClCompile Include="cutils.c" />
+    <ClCompile Include="quickjs-libc.c" />
+    <ClCompile Include="quickjs-libc-pal.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="quickjs.h" />
+    <ClInclude Include="quickjs-atom.h" />
+    <ClInclude Include="quickjs-opcode.h" />
+    <ClInclude Include="quickjs-pal.h" />
+    <ClInclude Include="quickjs-libc.h" />
+    <ClInclude Include="quickjs-libc-pal.h" />
+    <ClInclude Include="quickjs-libc-win32-compat.h" />
+    <ClInclude Include="cutils.h" />
+    <ClInclude Include="dtoa.h" />
+    <ClInclude Include="libregexp.h" />
+    <ClInclude Include="libregexp-opcode.h" />
+    <ClInclude Include="libunicode.h" />
+    <ClInclude Include="libunicode-table.h" />
+    <ClInclude Include="list.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

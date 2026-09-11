@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{F6415D3C-BF00-43B7-824E-1DF3F0D97560}</ProjectGuid>
+    <RootNamespace>qjs</RootNamespace>
+    <ProjectName>qjs</ProjectName>
+    <!-- Generated repl.c must exist (and be up to date) before ClCompile runs. -->
+    <CustomBuildBeforeTargets>ClCompile</CustomBuildBeforeTargets>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>ClangCL</PlatformToolset>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <PlatformToolset>ClangCL</PlatformToolset>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <CharacterSet>NotSet</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="quickjs-common.props" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="quickjs-common.props" />
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup>
+    <!-- Mirrors the Makefile's `./qjsc$(EXE) -s -c -o repl.c -m repl.js` rule.
+         qjsc.exe comes from the ProjectReference below, which also orders this
+         project's build after qjsc's. -->
+    <CustomBuildStep>
+      <Command>cd /d "$(ProjectDir)" &amp;&amp; "$(OutDir)qjsc.exe" -s -c -o repl.c -m repl.js</Command>
+      <Message>Generating repl.c from repl.js via qjsc</Message>
+      <Outputs>$(ProjectDir)repl.c</Outputs>
+      <Inputs>$(ProjectDir)repl.js;$(OutDir)qjsc.exe</Inputs>
+    </CustomBuildStep>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="qjs.c" />
+    <ClCompile Include="repl.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="libquickjs.vcxproj">
+      <Project>{BEC1ABA6-8383-4019-86AC-7E2689D3A56F}</Project>
+    </ProjectReference>
+    <ProjectReference Include="qjsc.vcxproj">
+      <Project>{79BF965D-6FEE-4CD8-829F-6302B97A1482}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

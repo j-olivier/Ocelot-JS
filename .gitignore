@@ -29,3 +29,9 @@ unicode_gen
 run_octane
 run_sunspider_like
 libwinpthread*.dll
+
+# Visual Studio / MSBuild (OcelotJS.sln)
+.vs/
+bin/
+obj/
+*.vcxproj.user
