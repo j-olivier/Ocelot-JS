@@ -370,6 +370,19 @@ struct JSRuntime {
 
     struct JSStackFrame *current_stack_frame;
 
+    /* Fixed-size buffers backing the non-recursive JS->JS bytecode call
+       trampoline in JS_CallInternal(). Allocated once in JS_NewRuntime2()
+       and never resized, so pointers into them (JSStackFrame::local_buf,
+       and frame pointers themselves) stay valid for as long as the frame
+       is alive. Bump-allocated / LIFO: a frame's slice is released back
+       to the top cursor exactly when that frame pops. */
+    uint8_t *trampoline_value_buf;      /* value-stack storage for trampolined frames */
+    size_t trampoline_value_buf_size;
+    uint8_t *trampoline_value_top;      /* bump cursor into trampoline_value_buf */
+    struct JSStackFrame *trampoline_frames; /* fixed array of frame records */
+    int trampoline_frame_capacity;
+    int trampoline_frame_top;           /* number of frame records currently in use */
+
     JSInterruptHandler *interrupt_handler;
     void *interrupt_opaque;
 
@@ -422,7 +435,7 @@ typedef struct JSStackFrame {
     JSValue cur_func; /* current function, JS_UNDEFINED if the frame is detached */
     JSValue *arg_buf; /* arguments */
     JSValue *var_buf; /* variables */
-    struct JSVarRef **var_refs; /* references to arguments or local variables */ 
+    struct JSVarRef **var_refs; /* references to arguments or local variables */
     const uint8_t *cur_pc; /* only used in bytecode functions : PC of the
                         instruction after the call */
     int arg_count;
@@ -430,7 +443,38 @@ typedef struct JSStackFrame {
     /* only used in generators. Current stack pointer value. NULL if
        the function is running. */
     JSValue *cur_sp;
+
+    /* --- The fields below are used only for bytecode-function frames
+       pushed by the non-recursive call trampoline in JS_CallInternal
+       (JS->JS calls via OP_call/OP_call_method/OP_eval): they let the
+       trampoline restore this frame's C-local execution context when a
+       nested call it made returns, without recursing in C. They are
+       unused (left zeroed) for: the entry frame of each JS_CallInternal
+       C invocation (still set up like today, via alloca), frames used by
+       js_call_c_function/js_call_bound_function, and the heap-owned
+       generator/async frame (JSAsyncFunctionState.frame). */
+    JSContext *caller_ctx;  /* realm of the frame that made this call */
+    JSValueConst new_target;
+    JSValueConst this_obj;
+    int orig_argc;      /* argc/argv as passed to the call, before the
+                           arg_count padding/copy applied when called with
+                           too few arguments -- js_build_arguments() and
+                           OP_rest need the originals, not the padded copy */
+    JSValue *orig_argv;
+    JSValue *local_buf; /* base of this frame's slice of
+                           rt->trampoline_value_buf (free-base and
+                           bump-restore target when this frame returns) */
+    uint8_t call_kind;  /* JSTrampolineCallKind: how to deliver this
+                           frame's return value into its caller */
 } JSStackFrame;
+
+/* how a trampolined bytecode frame was called, i.e. how its return value
+   must be delivered into its caller when it pops */
+typedef enum {
+    JS_TRAMPOLINE_CALL,   /* OP_call / OP_eval: pops [func, args...], pushes result */
+    JS_TRAMPOLINE_METHOD, /* OP_call_method: pops [this, func, args...], pushes result */
+    JS_TRAMPOLINE_TAIL,   /* OP_tail_call(_method): caller frame returns too */
+} JSTrampolineCallKind;
 
 typedef enum {
     JS_GC_OBJ_TYPE_JS_OBJECT,
@@ -2083,6 +2127,14 @@ static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 }
 #endif
 
+/* Fixed sizes for the non-recursive JS->JS bytecode call trampoline's
+   runtime-owned buffers (see JS_CALL_TRAMPOLINE / js_trampoline_push_frame,
+   near JS_CallInternal). Allocated once per runtime, in JS_NewRuntime2()
+   below, and never resized -- so pointers into them stay valid for as
+   long as the frame using them is alive. */
+#define JS_TRAMPOLINE_VALUE_BUF_SIZE ((size_t)1 << 20) /* 1 MiB of JSValue-slot storage */
+#define JS_TRAMPOLINE_FRAME_CAPACITY 32768
+
 JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque, JSPal *pal)
 {
     JSRuntime *rt;
@@ -2134,6 +2186,18 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque, JSPal *pal)
     rt->class_array[JS_CLASS_GENERATOR_FUNCTION].call = js_generator_function_call;
     if (init_shape_hash(rt))
         goto fail;
+
+    rt->trampoline_value_buf_size = JS_TRAMPOLINE_VALUE_BUF_SIZE;
+    rt->trampoline_value_buf = js_malloc_rt(rt, rt->trampoline_value_buf_size);
+    if (!rt->trampoline_value_buf)
+        goto fail;
+    rt->trampoline_value_top = rt->trampoline_value_buf;
+    rt->trampoline_frame_capacity = JS_TRAMPOLINE_FRAME_CAPACITY;
+    rt->trampoline_frames = js_malloc_rt(rt, sizeof(*rt->trampoline_frames) *
+                                         rt->trampoline_frame_capacity);
+    if (!rt->trampoline_frames)
+        goto fail;
+    rt->trampoline_frame_top = 0;
 
     rt->stack_size = JS_DEFAULT_STACK_SIZE;
     JS_UpdateStackTop(rt);
@@ -2561,6 +2625,8 @@ void JS_FreeRuntime(JSRuntime *rt)
     js_free_rt(rt, rt->atom_array);
     js_free_rt(rt, rt->atom_hash);
     js_free_rt(rt, rt->shape_hash);
+    js_free_rt(rt, rt->trampoline_value_buf);
+    js_free_rt(rt, rt->trampoline_frames);
 #ifdef DUMP_LEAKS
     if (!list_empty(&rt->string_list)) {
         if (rt->rt_info) {
@@ -17878,6 +17944,119 @@ typedef enum {
 #define FUNC_RET_YIELD_STAR    2
 #define FUNC_RET_INITIAL_YIELD 3
 
+/* Bump-allocate the value-stack storage and acquire a frame-record slot
+   for a non-recursive JS->JS bytecode call (see JS_CALL_TRAMPOLINE
+   below). Returns the new frame on success and writes the base of its
+   value-stack slice to *local_buf_out. On failure (either fixed buffer
+   exhausted), throws JS_ThrowStackOverflow() in caller_ctx and returns
+   NULL without mutating rt->trampoline_value_top / rt->trampoline_frame_top:
+   the check is transactional, so no partial state is ever committed. */
+static JSStackFrame *js_trampoline_push_frame(JSContext *caller_ctx,
+                                               JSFunctionBytecode *b,
+                                               int call_argc,
+                                               JSValue **local_buf_out)
+{
+    JSRuntime *rt = caller_ctx->rt;
+    int arg_allocated_size;
+    size_t alloca_size;
+
+    arg_allocated_size = (call_argc < b->arg_count) ? b->arg_count : 0;
+    alloca_size = sizeof(JSValue) * (arg_allocated_size + b->var_count +
+                                     b->stack_size) +
+        sizeof(JSVarRef *) * b->var_ref_count;
+    if (unlikely(rt->trampoline_frame_top >= rt->trampoline_frame_capacity) ||
+        unlikely((size_t)(rt->trampoline_value_buf + rt->trampoline_value_buf_size -
+                          rt->trampoline_value_top) < alloca_size)) {
+        JS_ThrowStackOverflow(caller_ctx);
+        return NULL;
+    }
+    *local_buf_out = (JSValue *)rt->trampoline_value_top;
+    rt->trampoline_value_top += alloca_size;
+    return &rt->trampoline_frames[rt->trampoline_frame_top++];
+}
+
+/* Try to run a JS->JS bytecode call without recursing in C: if `func_val`
+   is a plain bytecode function (class JS_CLASS_BYTECODE_FUNCTION --
+   guaranteed func_kind == JS_FUNC_NORMAL, see func_kind_to_class_id;
+   generator/async functions get their own class id and are dispatched
+   through the class .call handler below instead, unaffected by this),
+   push a frame onto the runtime's fixed trampoline buffers, switch every
+   interpreter C-local to the callee's context, and `goto restart`. On
+   buffer exhaustion, `goto exception` (JS_ThrowStackOverflow already
+   thrown). If `func_val` is NOT a plain bytecode function, falls through
+   so the caller's existing recursive-call code runs instead, unchanged. */
+#define JS_CALL_TRAMPOLINE(func_val, this_val, kind)                          \
+    do {                                                                      \
+        JSValueConst _tp_func = (func_val);                                   \
+        if (likely(JS_VALUE_GET_TAG(_tp_func) == JS_TAG_OBJECT &&             \
+                   JS_VALUE_GET_OBJ(_tp_func)->class_id ==                    \
+                       JS_CLASS_BYTECODE_FUNCTION)) {                         \
+            JSObject *_tp_p = JS_VALUE_GET_OBJ(_tp_func);                     \
+            JSFunctionBytecode *_tp_b = _tp_p->u.func.function_bytecode;      \
+            JSValue *_tp_local_buf;                                           \
+            JSStackFrame *_tp_frame = js_trampoline_push_frame(               \
+                caller_ctx, _tp_b, call_argc, &_tp_local_buf);                \
+            if (unlikely(!_tp_frame))                                        \
+                goto exception;                                              \
+            assert(_tp_b->func_kind == JS_FUNC_NORMAL);                      \
+            assert(!(_tp_b->js_mode & JS_MODE_ASYNC));                       \
+            {                                                                 \
+                int _tp_arg_allocated_size =                                  \
+                    (call_argc < _tp_b->arg_count) ? _tp_b->arg_count : 0;    \
+                JSValue *_tp_arg_buf;                                        \
+                int _tp_i;                                                   \
+                if (unlikely(_tp_arg_allocated_size)) {                      \
+                    int _tp_n = min_int(call_argc, _tp_b->arg_count);         \
+                    _tp_arg_buf = _tp_local_buf;                             \
+                    for (_tp_i = 0; _tp_i < _tp_n; _tp_i++)                  \
+                        _tp_arg_buf[_tp_i] = JS_DupValue(ctx, call_argv[_tp_i]); \
+                    for (; _tp_i < _tp_b->arg_count; _tp_i++)                \
+                        _tp_arg_buf[_tp_i] = JS_UNDEFINED;                   \
+                    _tp_frame->arg_count = _tp_b->arg_count;                 \
+                } else {                                                     \
+                    _tp_arg_buf = call_argv;                                 \
+                    _tp_frame->arg_count = call_argc;                        \
+                }                                                            \
+                var_buf = _tp_local_buf + _tp_arg_allocated_size;            \
+                for (_tp_i = 0; _tp_i < _tp_b->var_count; _tp_i++)           \
+                    var_buf[_tp_i] = JS_UNDEFINED;                          \
+                stack_buf = var_buf + _tp_b->var_count;                     \
+                _tp_frame->var_refs =                                       \
+                    (JSVarRef **)(stack_buf + _tp_b->stack_size);           \
+                for (_tp_i = 0; _tp_i < _tp_b->var_ref_count; _tp_i++)       \
+                    _tp_frame->var_refs[_tp_i] = NULL;                      \
+                _tp_frame->var_buf = var_buf;                               \
+                _tp_frame->arg_buf = _tp_arg_buf;                           \
+                _tp_frame->js_mode = _tp_b->js_mode;                        \
+                _tp_frame->cur_func = (JSValue)_tp_func;                    \
+                _tp_frame->caller_ctx = ctx;                                \
+                _tp_frame->new_target = JS_UNDEFINED;                       \
+                _tp_frame->this_obj = (this_val);                          \
+                _tp_frame->orig_argc = call_argc;                          \
+                _tp_frame->orig_argv = call_argv;                          \
+                _tp_frame->local_buf = _tp_local_buf;                      \
+                _tp_frame->call_kind = (kind);                             \
+                _tp_frame->prev_frame = sf;                                \
+                local_buf = _tp_local_buf;                                 \
+                arg_buf = _tp_arg_buf;                                     \
+                var_refs = _tp_p->u.func.var_refs;                         \
+                sp = stack_buf;                                           \
+                pc = _tp_b->byte_code_buf;                                \
+                caller_ctx = ctx;                                        \
+                this_obj = (this_val);                                   \
+                new_target = JS_UNDEFINED;                                \
+                argc = call_argc;                                        \
+                argv = call_argv;                                        \
+                p = _tp_p;                                                \
+                b = _tp_b;                                                \
+                ctx = _tp_b->realm;                                       \
+                sf = _tp_frame;                                          \
+                rt->current_stack_frame = sf;                             \
+            }                                                             \
+            goto restart;                                                \
+        }                                                                 \
+    } while (0)
+
 #ifdef OPCODE_ASM_LABEL
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-label"
@@ -17893,6 +18072,14 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     JSObject *p;
     JSFunctionBytecode *b;
     JSStackFrame sf_s, *sf = &sf_s;
+    /* the frame this C-level invocation was entered with: sf never
+       equals this except while unwinding all the way back out, at which
+       point the trampoline's pop logic does a real C `return` instead of
+       continuing to pop into a (nonexistent) caller frame. Every other
+       frame pushed/popped in between lives in rt->trampoline_frames /
+       rt->trampoline_value_buf and is unwound via `goto restart` /
+       `goto exception` instead of a C call/return. */
+    JSStackFrame *entry_sf;
     const uint8_t *pc;
     int opcode, arg_allocated_size, i;
     JSValue *local_buf, *stack_buf, *var_buf, *arg_buf, *sp, ret_val, *pval;
@@ -17945,6 +18132,13 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             pc = sf->cur_pc;
             sf->prev_frame = rt->current_stack_frame;
             rt->current_stack_frame = sf;
+            entry_sf = sf;
+            sf->caller_ctx = caller_ctx;
+            sf->new_target = new_target;
+            sf->this_obj = this_obj;
+            sf->orig_argc = argc;
+            sf->orig_argv = argv;
+            sf->local_buf = local_buf;
             if (s->throw_flag)
                 goto exception;
             else
@@ -18010,6 +18204,13 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
     sf->prev_frame = rt->current_stack_frame;
     rt->current_stack_frame = sf;
     ctx = b->realm; /* set the current realm */
+    entry_sf = sf;
+    sf->caller_ctx = caller_ctx;
+    sf->new_target = new_target;
+    sf->this_obj = this_obj;
+    sf->orig_argc = argc;
+    sf->orig_argv = argv;
+    sf->local_buf = local_buf;
 
  restart:
     for(;;) {
@@ -18330,6 +18531,9 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
             has_call_argc:
                 call_argv = sp - call_argc;
                 sf->cur_pc = pc;
+                JS_CALL_TRAMPOLINE(call_argv[-1], JS_UNDEFINED,
+                                   (opcode == OP_tail_call) ?
+                                       JS_TRAMPOLINE_TAIL : JS_TRAMPOLINE_CALL);
                 ret_val = JS_CallInternal(ctx, call_argv[-1], JS_UNDEFINED,
                                           JS_UNDEFINED, call_argc, call_argv, 0);
                 if (unlikely(JS_IsException(ret_val)))
@@ -18366,6 +18570,9 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                 pc += 2;
                 call_argv = sp - call_argc;
                 sf->cur_pc = pc;
+                JS_CALL_TRAMPOLINE(call_argv[-1], call_argv[-2],
+                                   (opcode == OP_tail_call_method) ?
+                                       JS_TRAMPOLINE_TAIL : JS_TRAMPOLINE_METHOD);
                 ret_val = JS_CallInternal(ctx, call_argv[-1], call_argv[-2],
                                           JS_UNDEFINED, call_argc, call_argv, 0);
                 if (unlikely(JS_IsException(ret_val)))
@@ -18519,6 +18726,7 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
                     ret_val = JS_EvalObject(ctx, JS_UNDEFINED, obj,
                                             JS_EVAL_TYPE_DIRECT, scope_idx);
                 } else {
+                    JS_CALL_TRAMPOLINE(call_argv[-1], JS_UNDEFINED, JS_TRAMPOLINE_CALL);
                     ret_val = JS_CallInternal(ctx, call_argv[-1], JS_UNDEFINED,
                                               JS_UNDEFINED, call_argc, call_argv, 0);
                 }
@@ -20849,7 +21057,82 @@ static JSValue JS_CallInternal(JSContext *caller_ctx, JSValueConst func_obj,
         }
     }
     rt->current_stack_frame = sf->prev_frame;
-    return ret_val;
+    if (sf == entry_sf) {
+        /* true C-level return: either the entry frame of this
+           JS_CallInternal() invocation finished (done/done_generator),
+           or an uncaught exception unwound all the way back out to it. */
+        return ret_val;
+    } else {
+        /* `sf` is a frame pushed by JS_CALL_TRAMPOLINE: pop its
+           value-stack slice and frame record, restore its caller's
+           execution context into the interpreter's C-locals, and
+           continue -- without ever returning from C. */
+        JSStackFrame *popped = sf;
+        JSValue *call_site_sp = popped->orig_argv + popped->orig_argc;
+
+        rt->trampoline_value_top = (uint8_t *)popped->local_buf;
+        rt->trampoline_frame_top--;
+
+        sf = popped->prev_frame;
+        p = JS_VALUE_GET_OBJ(sf->cur_func);
+        b = p->u.func.function_bytecode;
+        ctx = b->realm;
+        var_refs = p->u.func.var_refs;
+        pc = sf->cur_pc;
+        local_buf = sf->local_buf;
+        var_buf = sf->var_buf;
+        arg_buf = sf->arg_buf;
+        stack_buf = var_buf + b->var_count;
+        this_obj = sf->this_obj;
+        new_target = sf->new_target;
+        argc = sf->orig_argc;
+        argv = sf->orig_argv;
+        caller_ctx = sf->caller_ctx;
+        rt->current_stack_frame = sf;
+
+        if (JS_IsException(ret_val)) {
+            /* Uniform regardless of popped->call_kind: this exactly
+               mirrors what the (still-recursive-looking) call sites do
+               today -- `if (JS_IsException(ret_val)) goto exception;`
+               runs *before* the tail-call-specific `goto done;` check,
+               so tail vs. non-tail makes no difference here. The
+               caller's own value stack (from stack_buf up to
+               call_site_sp, which still holds the callee's unfreed
+               func/this/args) is unwound by the caller's own
+               (unmodified) exception-handling loop above. */
+            sp = call_site_sp;
+            goto exception;
+        }
+        switch (popped->call_kind) {
+        case JS_TRAMPOLINE_CALL:
+            {
+                JSValue *result_slot = popped->orig_argv - 1;
+                for (pval = result_slot; pval < call_site_sp; pval++)
+                    JS_FreeValue(ctx, *pval);
+                sp = result_slot;
+                *sp++ = ret_val;
+            }
+            goto restart;
+        case JS_TRAMPOLINE_METHOD:
+            {
+                JSValue *result_slot = popped->orig_argv - 2;
+                for (pval = result_slot; pval < call_site_sp; pval++)
+                    JS_FreeValue(ctx, *pval);
+                sp = result_slot;
+                *sp++ = ret_val;
+            }
+            goto restart;
+        default: /* JS_TRAMPOLINE_TAIL */
+            /* The caller itself made a tail call: it delivers `ret_val`
+               onward exactly as it would with `goto done;` today (its
+               own args/func are left on its stack for its own `done:`
+               free loop below, using its own sp = call_site_sp). This
+               may itself cascade again if the caller was, in turn,
+               tail-called. */
+            sp = call_site_sp;
+            goto done;
+        }
+    }
 }
 
 #ifdef OPCODE_ASM_LABEL
